@@ -1,12 +1,12 @@
-#pragma warning(disable: 4820) // <struct>: 'N' bytes padding added after data member <struct member>
-#pragma warning(disable: 4127) // conditional expression is constant
-#pragma warning(disable: 4514) // unreferenced inline function has been removed
+#include "elf/parser.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <malloc.h>
 #include <memory.h>
 #include <assert.h>
+
+#pragma warning(disable: 4127) // conditional expression is constant
 
 #ifndef XLEN
 #define XLEN 32
@@ -252,6 +252,10 @@ void cpuReset(CPU* cpu)
 	cpu->m_State.m_PC = 0;
 }
 
+// Issues: Multiple memory reads and writes in a single cycle (assuming Von Neumann architecture).
+// A single read (read next instruction) and a single write (i.e. from store instructions) can be implemented
+// by using both the rising and falling edge of the clock. But a 2nd read (i.e. from load instructions) cannot
+// be implemented (requires a combinational read from memory; if at all possible).
 void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 {
 	// instruction register
@@ -435,7 +439,8 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 		cpuSetPC(cpu, cpuGetPC(cpu) + immJ(instr));
 		break;
 	case Opcode::System:
-		// TODO: 
+		// TODO: ECALL?
+		assert(false);
 		break;
 	default:
 		assert(false);
@@ -447,27 +452,57 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 }
 }
 
+uint8_t* readFile(const char* filename, uint32_t& fileSize)
+{
+	FILE* f = fopen(filename, "rb");
+	if (!f) {
+		return nullptr;
+	}
+
+	fseek(f, 0, SEEK_END);
+	fileSize = (uint32_t)ftell(f);
+	fseek(f, 0, SEEK_SET);
+
+	uint8_t* data = (uint8_t*)malloc(fileSize);
+	if (!data) {
+		return nullptr;
+	}
+
+	fread(data, sizeof(uint8_t), fileSize, f);
+
+	fclose(f);
+
+	return data;
+}
+
 int main()
 {
-	// TEST
-	{
-		assert(riscv::sext(1, 10) == 0x00000001);
-		assert(riscv::sext(5, 2) == 0xFFFFFFFD);
-		assert(riscv::sext(0x0000FFFF, 15) == 0xFFFFFFFF);
-		assert(riscv::sext(0x00007FFF, 15) == 0x00007FFF);
+	const char* elfFilename = "./multiply";
+
+	uint32_t elfSize = ~0u;
+	uint8_t* elfData = readFile(elfFilename, elfSize);
+	if (!elfData) {
+		printf("Failed read ELF file\n");
+		return 1;
+	}
+
+	riscv::Memory mem;
+	riscv::memInit(&mem, 1024 << 10); // 1MB RAM
+
+	uint32_t entryPointAddr = elf::load(elfData, mem.m_Data, mem.m_Size);
+
+	free(elfData);
+
+	if (entryPointAddr == ~0u) {
+		printf("Failed to load ELF file into memory.\n");
+		return 1;
 	}
 
 	riscv::CPU cpu;
 	riscv::cpuReset(&cpu);
 
-	riscv::Memory mem;
-	riscv::memInit(&mem, 1024 << 10); // 1MB RAM
+	cpu.m_State.m_PC = entryPointAddr;
 
-	riscv::memWrite32(&mem, 0, 0x00000013); // ADD x0, x0, 0
-	riscv::memWrite32(&mem, 4, 0x00000013); // ADD x0, x0, 0
-	riscv::memWrite32(&mem, 8, 0x00000013); // ADD x0, x0, 0
-	riscv::memWrite32(&mem, 12, 0x00000013); // ADD x0, x0, 0
-	riscv::memWrite32(&mem, 16, 0xFF1FF06F); // JAL x0, -16
 	while (true) {
 		riscv::cpuTick_SingleCycle(&cpu, &mem);
 	}
