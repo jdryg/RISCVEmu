@@ -141,9 +141,11 @@
   <ItemGroup>
     <ClCompile Include="src\elf\parser.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\syscall.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\elf\parser.h" />
+    <ClInclude Include="src\syscall.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,3 +1,4 @@
+#include "syscall.h"
 #include "elf/parser.h"
 
 #include <stdint.h>
@@ -224,6 +225,12 @@ void memWrite8(Memory* mem, uint32_t addr, uint8_t val)
 	mem->m_Data[addr] = val;
 }
 
+uint8_t* memVirtualToPhysical(Memory* mem, uint32_t addr)
+{
+	assert(addr < mem->m_Size);
+	return &mem->m_Data[addr];
+}
+
 word_t cpuGetPC(CPU* cpu)
 {
 	return cpu->m_State.m_PC;
@@ -252,20 +259,49 @@ void cpuReset(CPU* cpu)
 	cpu->m_State.m_PC = 0;
 }
 
+void cpuExecuteSystemCall(CPU* cpu, Memory* mem)
+{
+	uint32_t sysCallID = cpuGetRegister(cpu, 17);
+	switch (sysCallID) {
+	case SYS_fstat:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, 10), memVirtualToPhysical(mem, cpuGetRegister(cpu, 11))));
+		break;
+	case SYS_brk:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_brk(cpuGetRegister(cpu, 10)));
+		break;
+	case SYS_close:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_close((int)cpuGetRegister(cpu, 10)));
+		break;
+	case SYS_write:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_write((int)cpuGetRegister(cpu, 10), (const char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
+		break;
+	case SYS_exit:
+		sys_exit((int)cpuGetRegister(cpu, 10));
+		break;
+	default:
+		printf("0x%08X: ECALL a0=%08X, a1=%08X, a2=%08X, a3=%08X, a4=%08X, a5=%08X, a6=%08X, a7=%08X\n"
+			, cpuGetPC(cpu)
+			, cpuGetRegister(cpu, 10)
+			, cpuGetRegister(cpu, 11)
+			, cpuGetRegister(cpu, 12)
+			, cpuGetRegister(cpu, 13)
+			, cpuGetRegister(cpu, 14)
+			, cpuGetRegister(cpu, 15)
+			, cpuGetRegister(cpu, 16)
+			, cpuGetRegister(cpu, 17));
+		assert(false); // Unknwon syscall
+		break;
+	}
+}
+
 // Issues: Multiple memory reads and writes in a single cycle (assuming Von Neumann architecture).
 // A single read (read next instruction) and a single write (i.e. from store instructions) can be implemented
 // by using both the rising and falling edge of the clock. But a 2nd read (i.e. from load instructions) cannot
 // be implemented (requires a combinational read from memory; if at all possible).
 void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 {
-	// instruction register
-//	uint32_t ir = 0x00000013; // ADDI x0, x0, 0 == NOP
-// 	uint32_t ir = 0x555550B7; // LUI x1, 0x55555000;
-//	uint32_t ir = 0x0000F097; // AUIPC x1, 0x0000F000;
-	const uint32_t ir = memRead32(mem, cpuGetPC(cpu));
-
 	Instruction instr;
-	instr.m_Word = ir;
+	instr.m_Word = memRead32(mem, cpuGetPC(cpu));
 
 	cpuSetPC(cpu, cpuGetPC(cpu) + 4);
 
@@ -351,6 +387,9 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 			break;
 		case 2: // SW
 			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2));
+			break;
+		default:
+			assert(false); // Unknown width value.
 			break;
 		}
 		break;
@@ -439,8 +478,19 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 		cpuSetPC(cpu, cpuGetPC(cpu) + immJ(instr));
 		break;
 	case Opcode::System:
-		// TODO: ECALL?
-		assert(false);
+		assert(instr.I.funct3 == 0);
+		assert(instr.I.rd == 0);
+		assert(instr.I.rs1 == 0);
+		switch (instr.I.imm) {
+		case 0: // ECALL
+			cpuExecuteSystemCall(cpu, mem);
+			break;
+		case 1: // EBREAK
+			assert(false); // Not implemented
+			break;
+		default:
+			assert(false); // Unknown SYSTEM instruction
+		}
 		break;
 	default:
 		assert(false);
@@ -477,7 +527,7 @@ uint8_t* readFile(const char* filename, uint32_t& fileSize)
 
 int main()
 {
-	const char* elfFilename = "./multiply";
+	const char* elfFilename = "./elfs/hello";
 
 	uint32_t elfSize = ~0u;
 	uint8_t* elfData = readFile(elfFilename, elfSize);
@@ -498,14 +548,21 @@ int main()
 		return 1;
 	}
 
+	sys__init();
+
 	riscv::CPU cpu;
 	riscv::cpuReset(&cpu);
 
-	cpu.m_State.m_PC = entryPointAddr;
+	riscv::cpuSetRegister(&cpu, 2, mem.m_Size - 4); // Set SP to the end of the memory range.
+	riscv::cpuSetPC(&cpu, entryPointAddr); // Set PC to program entry point
+	memcpy(&cpu.m_State, &cpu.m_NextState, sizeof(riscv::CPUState));
 
-	while (true) {
+	while (sys__isRunning()) {
+//		printf("PC: 0x%08X\r", cpu.m_State.m_PC);
 		riscv::cpuTick_SingleCycle(&cpu, &mem);
 	}
+
+	printf("Application exited with code: %d\n", sys__getExitCode());
 
 	return 0;
 }
