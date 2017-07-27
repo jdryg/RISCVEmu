@@ -274,6 +274,12 @@ void cpuExecuteSystemCall(CPU* cpu, Memory* mem)
 	case SYS_close:
 		cpuSetRegister(cpu, 10, (uint32_t)sys_close((int)cpuGetRegister(cpu, 10)));
 		break;
+	case SYS_lseek:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, 10), (size_t)cpuGetRegister(cpu, 11), (int)cpuGetRegister(cpu, 12)));
+		break;
+	case SYS_read:
+		cpuSetRegister(cpu, 10, (uint32_t)sys_read((int)cpuGetRegister(cpu, 10), (char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
+		break;
 	case SYS_write:
 		cpuSetRegister(cpu, 10, (uint32_t)sys_write((int)cpuGetRegister(cpu, 10), (const char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
 		break;
@@ -529,7 +535,8 @@ uint8_t* readFile(const char* filename, uint32_t& fileSize)
 
 int main()
 {
-	const char* elfFilename = "./elfs/hello";
+//	const char* elfFilename = "./elfs/hello";
+	const char* elfFilename = "./elfs/input";
 
 	uint32_t elfSize = ~0u;
 	uint8_t* elfData = readFile(elfFilename, elfSize);
@@ -556,7 +563,6 @@ int main()
 	riscv::cpuReset(&cpu, entryPointAddr, mem.m_Size - 4);
 
 	while (sys__isRunning()) {
-//		printf("PC: 0x%08X\r", cpu.m_State.m_PC);
 		riscv::cpuTick_SingleCycle(&cpu, &mem);
 	}
 
