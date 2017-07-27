@@ -10,22 +10,21 @@ namespace elf
 
 int isELF(const header* elf)
 {
-    int iself = -1;
-
-    if ((elf->identity[0] == 0x7f) && !strncmp((char *)&elf->identity[1], "ELF", 3)) {
-        iself = 0;
-    }
-
+	int iself = -1;
+	
+	if ((elf->identity[0] == 0x7f) && !strncmp((char *)&elf->identity[1], "ELF", 3)) {
+		iself = 0;
+	}
+	
 	if (iself != -1) {
 		iself = elf->type;
 	}
-
-    return iself;
+	
+	return iself;
 }
 
 void load_segment(const uint8_t* data, const phead* ph, uint8_t* mem, uint32_t memSize)
 {
-
 	uint32_t memsize = ph->mem_size;
 	uint32_t filesize = ph->file_size;
 	uint32_t mempos = ph->virtual_address;

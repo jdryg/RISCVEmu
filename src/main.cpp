@@ -243,7 +243,7 @@ void cpuSetPC(CPU* cpu, word_t val)
 
 word_t cpuGetRegister(CPU* cpu, uint32_t reg)
 {
-	return reg == 0 ? 0 : cpu->m_State.m_IRegs[reg];
+	return cpu->m_State.m_IRegs[reg];
 }
 
 void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val)
@@ -253,10 +253,12 @@ void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val)
 	}
 }
 
-void cpuReset(CPU* cpu)
+void cpuReset(CPU* cpu, word_t pc, word_t sp)
 {
-	cpu->m_State.m_IRegs[0] = 0;
-	cpu->m_State.m_PC = 0;
+	cpu->m_NextState.m_IRegs[0] = 0;
+	cpu->m_NextState.m_IRegs[2] = sp;
+	cpu->m_NextState.m_PC = pc;
+	memcpy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
 void cpuExecuteSystemCall(CPU* cpu, Memory* mem)
@@ -551,11 +553,7 @@ int main()
 	sys__init();
 
 	riscv::CPU cpu;
-	riscv::cpuReset(&cpu);
-
-	riscv::cpuSetRegister(&cpu, 2, mem.m_Size - 4); // Set SP to the end of the memory range.
-	riscv::cpuSetPC(&cpu, entryPointAddr); // Set PC to program entry point
-	memcpy(&cpu.m_State, &cpu.m_NextState, sizeof(riscv::CPUState));
+	riscv::cpuReset(&cpu, entryPointAddr, mem.m_Size - 4);
 
 	while (sys__isRunning()) {
 //		printf("PC: 0x%08X\r", cpu.m_State.m_PC);
