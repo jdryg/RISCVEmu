@@ -1,6 +1,10 @@
 #ifndef SYSCALL_H
 #define SYSCALL_H
 
+#include <stdint.h>
+
+struct Memory;
+
 // https://github.com/riscv/riscv-pk/blob/f6b2274af4a91763ecdb94600d7d54d5f7f262b5/pk/syscall.h
 #define SYS_close 0x39
 #define SYS_lseek 0x3E
@@ -19,7 +23,7 @@ size_t sys_brk(size_t pos);
 void sys_exit(int code);
 
 // Internal
-void sys__init();
+void sys__init(Memory* memory, uint32_t initialBreak);
 bool sys__isRunning();
 int sys__getExitCode();
 

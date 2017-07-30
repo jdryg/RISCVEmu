@@ -71,6 +71,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\</OutDir>
+    <TargetName>$(ProjectName)_$(Platform)_$(Configuration)</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
@@ -97,11 +99,14 @@
       </PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;_CRT_SECURE_NO_WARNINGS;__STDC_FORMAT_MACROS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)bx\include;$(SolutionDir)bx\include\compat\msvc;$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>OpenGL32.lib;glfw3dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -139,12 +144,87 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="bx\src\allocator.cpp" />
+    <ClCompile Include="bx\src\amalgamated.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="bx\src\bx.cpp" />
+    <ClCompile Include="bx\src\commandline.cpp" />
+    <ClCompile Include="bx\src\crtnone.cpp" />
+    <ClCompile Include="bx\src\debug.cpp" />
+    <ClCompile Include="bx\src\dtoa.cpp" />
+    <ClCompile Include="bx\src\file.cpp" />
+    <ClCompile Include="bx\src\filepath.cpp" />
+    <ClCompile Include="bx\src\math.cpp" />
+    <ClCompile Include="bx\src\mutex.cpp" />
+    <ClCompile Include="bx\src\os.cpp" />
+    <ClCompile Include="bx\src\process.cpp" />
+    <ClCompile Include="bx\src\semaphore.cpp" />
+    <ClCompile Include="bx\src\sort.cpp" />
+    <ClCompile Include="bx\src\string.cpp" />
+    <ClCompile Include="bx\src\thread.cpp" />
+    <ClCompile Include="bx\src\timer.cpp" />
     <ClCompile Include="src\elf\parser.cpp" />
+    <ClCompile Include="src\imgui\imgui.cpp" />
+    <ClCompile Include="src\imgui\imgui_draw.cpp" />
+    <ClCompile Include="src\imgui_impl_glfw.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\memory.cpp" />
+    <ClCompile Include="src\nfd\nfd_common.c" />
+    <ClCompile Include="src\nfd\nfd_win.cpp" />
+    <ClCompile Include="src\riscv\core_single_cycle.cpp" />
+    <ClCompile Include="src\riscv\cpu.cpp" />
+    <ClCompile Include="src\riscv\disasm.cpp" />
     <ClCompile Include="src\syscall.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="bx\include\bx\allocator.h" />
+    <ClInclude Include="bx\include\bx\bx.h" />
+    <ClInclude Include="bx\include\bx\commandline.h" />
+    <ClInclude Include="bx\include\bx\config.h" />
+    <ClInclude Include="bx\include\bx\cpu.h" />
+    <ClInclude Include="bx\include\bx\debug.h" />
+    <ClInclude Include="bx\include\bx\endian.h" />
+    <ClInclude Include="bx\include\bx\error.h" />
+    <ClInclude Include="bx\include\bx\file.h" />
+    <ClInclude Include="bx\include\bx\filepath.h" />
+    <ClInclude Include="bx\include\bx\float4x4_t.h" />
+    <ClInclude Include="bx\include\bx\handlealloc.h" />
+    <ClInclude Include="bx\include\bx\hash.h" />
+    <ClInclude Include="bx\include\bx\macros.h" />
+    <ClInclude Include="bx\include\bx\maputil.h" />
+    <ClInclude Include="bx\include\bx\math.h" />
+    <ClInclude Include="bx\include\bx\mpscqueue.h" />
+    <ClInclude Include="bx\include\bx\mutex.h" />
+    <ClInclude Include="bx\include\bx\os.h" />
+    <ClInclude Include="bx\include\bx\pixelformat.h" />
+    <ClInclude Include="bx\include\bx\platform.h" />
+    <ClInclude Include="bx\include\bx\process.h" />
+    <ClInclude Include="bx\include\bx\readerwriter.h" />
+    <ClInclude Include="bx\include\bx\ringbuffer.h" />
+    <ClInclude Include="bx\include\bx\rng.h" />
+    <ClInclude Include="bx\include\bx\semaphore.h" />
+    <ClInclude Include="bx\include\bx\simd_t.h" />
+    <ClInclude Include="bx\include\bx\sort.h" />
+    <ClInclude Include="bx\include\bx\spscqueue.h" />
+    <ClInclude Include="bx\include\bx\string.h" />
+    <ClInclude Include="bx\include\bx\thread.h" />
+    <ClInclude Include="bx\include\bx\timer.h" />
+    <ClInclude Include="bx\include\bx\uint32_t.h" />
+    <ClInclude Include="src\debug.h" />
     <ClInclude Include="src\elf\parser.h" />
+    <ClInclude Include="src\imgui\imconfig.h" />
+    <ClInclude Include="src\imgui\imgui.h" />
+    <ClInclude Include="src\imgui\imgui_internal.h" />
+    <ClInclude Include="src\imgui\imgui_user.h" />
+    <ClInclude Include="src\imgui\stb_rect_pack.h" />
+    <ClInclude Include="src\imgui\stb_textedit.h" />
+    <ClInclude Include="src\imgui\stb_truetype.h" />
+    <ClInclude Include="src\imgui_impl_glfw.h" />
+    <ClInclude Include="src\memory.h" />
+    <ClInclude Include="src\nfd\common.h" />
+    <ClInclude Include="src\nfd\nfd_common.h" />
+    <ClInclude Include="src\riscv\cpu.h" />
     <ClInclude Include="src\syscall.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

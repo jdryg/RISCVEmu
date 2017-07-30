@@ -1,22 +1,27 @@
-#include <stdint.h>
+#include "syscall.h"
+#include "memory.h"
+#include "debug.h"
 #include <stdio.h>
 #include <assert.h>
 #include <sys/stat.h>
 #include <io.h>
 
 #ifndef TRACE_SYSCALLS
-#	define TRACE_SYSCALLS 0
+#	define TRACE_SYSCALLS 1
 #endif
 
 #define EBADF 9
 
 static bool g_SysRunning = false;
 static int g_SysExitCode = 0;
+static Memory* g_SysMemory = nullptr;
+static uint32_t g_SysInitialBreak = 0;
+static uint32_t g_SysCurrentBreak = 0;
 
 int sys_fstat(int fd, void* st)
 {
 #if TRACE_SYSCALLS
-	printf("sys_fstat(%d, %08X)\n", fd, (uint32_t)st);
+	RISCV_TRACE("sys_fstat(%d, %08Xh)", fd, (uint32_t)st);
 #endif
 
 	int r = -EBADF;
@@ -32,7 +37,7 @@ int sys_fstat(int fd, void* st)
 size_t sys_lseek(int fd, size_t ptr, int dir)
 {
 #if TRACE_SYSCALLS
-	printf("sys_lseek(%d, %u, %d)\n", fd, (uint32_t)ptr, dir);
+	RISCV_TRACE("sys_lseek(%d, %u, %d)", fd, (uint32_t)ptr, dir);
 #endif
 
 	size_t r = (size_t)(-EBADF);
@@ -49,7 +54,7 @@ size_t sys_lseek(int fd, size_t ptr, int dir)
 size_t sys_read(int fd, char* buf, size_t n)
 {
 #if TRACE_SYSCALLS
-	printf("sys_read(%d, %08X, %u)\n", fd, (uint32_t)buf, n);
+	RISCV_TRACE("sys_read(%d, %08Xh, %u)", fd, (uint32_t)buf, n);
 #endif
 
 	size_t r = (size_t)(-EBADF);
@@ -66,7 +71,7 @@ size_t sys_read(int fd, char* buf, size_t n)
 size_t sys_write(int fd, const char* buf, size_t n)
 {
 #if TRACE_SYSCALLS
-	printf("sys_write(%d, %08X, %u)\n", fd, (uint32_t)buf, n);
+	RISCV_TRACE("sys_write(%d, %08Xh, %u)", fd, (uint32_t)buf, n);
 #endif
 
 	size_t r = (size_t)(-EBADF);
@@ -83,7 +88,7 @@ size_t sys_write(int fd, const char* buf, size_t n)
 int sys_close(int fd)
 {
 #if TRACE_SYSCALLS
-	printf("sys_close(%d)\n", fd);
+	RISCV_TRACE("sys_close(%d)", fd);
 #endif
 
 	int r = -EBADF;
@@ -98,18 +103,31 @@ int sys_close(int fd)
 size_t sys_brk(size_t addr)
 {
 #if TRACE_SYSCALLS
-	printf("sys_brk(%08X)\n", addr);
+	RISCV_TRACE("sys_brk(%08Xh)", addr);
 #endif
 
-	// TODO: ???
-	
+	if (addr < g_SysInitialBreak) {
+		return g_SysInitialBreak;
+	} else if (addr >= g_SysMemory->m_Size) {
+		return g_SysCurrentBreak;
+	}
+
+	if (addr > g_SysCurrentBreak) {
+		uint8_t* data = memVirtualToPhysical(g_SysMemory, g_SysCurrentBreak);
+		bx::memSet(data, 0, (uint32_t)addr - g_SysCurrentBreak);
+
+		memExpandOrAddRegion(g_SysMemory, g_SysInitialBreak, (uint32_t)addr - g_SysCurrentBreak, RegionFlags::Read | RegionFlags::Write);
+	}
+
+	g_SysCurrentBreak = (uint32_t)addr;
+
 	return addr;
 }
 
 void sys_exit(int code)
 {
 #if TRACE_SYSCALLS
-	printf("sys_exit(%d)\n", code);
+	RISCV_TRACE("sys_exit(%d)", code);
 #endif
 
 	g_SysRunning = false;
@@ -117,8 +135,11 @@ void sys_exit(int code)
 }
 
 // Internal
-void sys__init()
+void sys__init(Memory* mem, uint32_t initialBreak)
 {
+	g_SysMemory = mem;
+	g_SysInitialBreak = initialBreak;
+	g_SysCurrentBreak = initialBreak;
 	g_SysRunning = true;
 	g_SysExitCode = 0;
 }

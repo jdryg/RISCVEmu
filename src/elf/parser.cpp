@@ -1,60 +1,88 @@
-// http://www.thomasloven.com/blog/2013/08/Loading-Elf/
 #include "parser.h"
+#include "../memory.h"
+#include "../debug.h"
 #include <string.h>
-#include <assert.h>
+#include <bx/bx.h>
 
 namespace elf
 {
-#define ELF_TYPE_EXECUTABLE 2
-#define ELF_PT_LOAD 1
-
-int isELF(const header* elf)
+bool isELF32(const uint8_t* ident)
 {
-	int iself = -1;
-	
-	if ((elf->identity[0] == 0x7f) && !strncmp((char *)&elf->identity[1], "ELF", 3)) {
-		iself = 0;
+	if (ident[EI_MAG0] != ELFMAG0 ||
+		ident[EI_MAG1] != ELFMAG1 ||
+		ident[EI_MAG2] != ELFMAG2 ||
+		ident[EI_MAG3] != ELFMAG3)
+	{
+		return false;
+	}
+
+	if (ident[EI_CLASS] != ELFCLASS32) {
+		return false;
 	}
 	
-	if (iself != -1) {
-		iself = elf->type;
-	}
-	
-	return iself;
+	return true;
 }
 
-void load_segment(const uint8_t* data, const phead* ph, uint8_t* mem, uint32_t memSize)
+void load_segment(const uint8_t* data, const Elf32_Phdr* ph, Memory* memory)
 {
-	uint32_t memsize = ph->mem_size;
-	uint32_t filesize = ph->file_size;
-	uint32_t mempos = ph->virtual_address;
-	uint32_t filepos = ph->offset;
-
+	const uint32_t memsize = ph->p_memsz;
 	if (memsize == 0) {
 		return;
 	}
 
-	assert(mempos < memSize);
-	assert(mempos + memsize < memSize);
+	const uint32_t filesize = ph->p_filesz;
+	const uint32_t mempos = ph->p_vaddr;
+	const uint32_t filepos = ph->p_offset;
+	RISCV_CHECK(mempos < memory->m_Size, "Invalid segment virtual address");
+	RISCV_CHECK(mempos + memsize < memory->m_Size, "Invalid segment virtual address");
 
-	memcpy(&mem[mempos], &data[filepos], filesize);
-	memset(&mem[mempos + filesize], 0, memsize - filesize);
+	bx::memCopy(memVirtualToPhysical(memory, mempos), &data[filepos], filesize);
+	bx::memSet(memVirtualToPhysical(memory, mempos + filesize), 0, memsize - filesize);
+
+	memAddRegion(memory, mempos, memsize, ph->p_flags);
 }
 
-uint32_t load(const uint8_t* data, uint8_t* mem, uint32_t memSize)
+Info load(const uint8_t* data, Memory* memory)
 {
-	const header* elf = (const header*)data;
-	if (isELF(elf) != ELF_TYPE_EXECUTABLE) {
-		return ~0u;
+	const Elf32_Ehdr* elf = (const Elf32_Ehdr*)data;
+	if (!isELF32(elf->e_ident) || 
+		elf->e_type != ET_EXEC ||
+		elf->e_machine != EM_RISCV) 
+	{
+		return { ~0u, ~0u };
 	}
 
-	const phead* ph = (const phead*)&data[elf->ph_offset];
-	for (uint32_t i = 0; i < elf->ph_num; i++) {
-		if (ph[i].type == ELF_PT_LOAD) {
-			load_segment(data, &ph[i], mem, memSize);
+	const Elf32_Phdr* ph = (const Elf32_Phdr*)&data[elf->e_phoff];
+	for (uint32_t i = 0; i < elf->e_phnum; ++i) {
+		if (ph[i].p_type == ELF_PT_LOAD) {
+			load_segment(data, &ph[i], memory);
+		}
+	}
+	
+	// Find .bss section
+	uint32_t initialBreak = ~0u;
+	const Elf32_Shdr* sh = (const Elf32_Shdr*)&data[elf->e_shoff];
+	const Elf32_Shdr* stringTable = &sh[elf->e_shstrndx];
+	const char* stringTableData = (const char*)&data[stringTable->sh_offset];
+	for (uint32_t i = 0; i < elf->e_shnum; ++i) {
+		const char* name = &stringTableData[sh[i].sh_name];
+		if (!strcmp(name, ".bss")) {
+			// Zero initialize bss section
+			bx::memSet(memVirtualToPhysical(memory, sh[i].sh_addr), 0, sh[i].sh_size);
+			initialBreak = sh[i].sh_addr + sh[i].sh_size;
+
+			memAddRegion(memory, sh[i].sh_addr, sh[i].sh_size, RegionFlags::Read | RegionFlags::Write);
+
+			break;
 		}
 	}
 
-	return elf->entry;
+	RISCV_CHECK(initialBreak != ~0u, ".bss section not found or it has and invalid virtual address.");
+
+	Info inf;
+	inf.m_EntryPointAddr = elf->e_entry;
+	inf.m_InitialBreak = initialBreak;
+
+	return inf;
 }
 }

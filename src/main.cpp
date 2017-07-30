@@ -1,514 +1,66 @@
-#include "syscall.h"
 #include "elf/parser.h"
+#include "riscv/cpu.h"
+#include "debug.h"
+#include "memory.h"
+#include "syscall.h"
+
+#include <nfd/nfd.h>
+#include <bx/string.h>
+#include <bx/math.h>
+#include <bx/uint32_t.h>
+
+#define IMGUI_INCLUDE_IMGUI_USER_H
+#include "imgui/imgui.h"
+#include "imgui_impl_glfw.h"
+#include <GLFW/glfw3.h>
 
 #include <stdint.h>
 #include <stdio.h>
 #include <malloc.h>
 #include <memory.h>
-#include <assert.h>
 
-#pragma warning(disable: 4127) // conditional expression is constant
+#define INIT_ERR_SUCCESS     0
+#define INIT_ERR_NO_MEMORY   1
+#define INIT_ERR_INVALID_ELF 2
 
-#ifndef XLEN
-#define XLEN 32
-#endif
+#define UI_WIN_SETUP  0x00000001
+#define UI_WIN_DEBUG  0x00000002
 
-#if XLEN == 32
-typedef uint32_t word_t;
-#elif XLEN == 64
-typedef uint64_t word_t;
-#error "Not implemented yet!";
-#else
-#error "Invalid XLEN value";
-#endif
-
-namespace riscv
+struct App
 {
-struct Opcode
-{
-	enum Enum
-	{
-		Load = 0x03,
-		MiscMem = 0x0F,
-		OpImm = 0x13,
-		AUIPC = 0x17,
-		Store = 0x23,
-		Op = 0x33,
-		LUI = 0x37,
-		Branch = 0x63,
-		JALR = 0x67,
-		JAL = 0x6F,
-		System = 0x73
-	};
+	GLFWwindow* m_GLFWWindow;
+	riscv::CPU* m_CPU;
+	Memory* m_RAM;
+
+	uint8_t* m_ELFData;
+	uint32_t m_ELFSize;
+	int m_RAMSizeMB;
+	int m_StackSizeKB;
+	int m_InitError;
+	bool m_ScrollToPC;
+	uint32_t m_NumCPUSteps;
+	bool m_Run;
+
+	uint32_t m_WinVis;
+
+	App(uint32_t visibleWindows) 
+		: m_GLFWWindow(nullptr)
+		, m_CPU(nullptr)
+		, m_RAM(nullptr)
+		, m_WinVis(visibleWindows)
+		, m_ELFData(nullptr)
+		, m_ELFSize(0)
+		, m_InitError(INIT_ERR_SUCCESS)
+		, m_RAMSizeMB(4)
+		, m_StackSizeKB(128)
+		, m_ScrollToPC(true)
+		, m_NumCPUSteps(0)
+		, m_Run(false)
+	{}
+
+	~App()
+	{}
 };
-
-struct ALUOp
-{
-	enum Enum
-	{
-		AddSub = 0,
-		ShiftLeft = 1,
-		SLT = 2,
-		SLTU = 3,
-		Xor = 4,
-		ShiftRight = 5,
-		Or = 6,
-		And = 7
-	};
-};
-
-struct BranchOp
-{
-	enum Enum
-	{
-		// 3 bits XYZ
-		// Z = Polarity (0 = don't invert result, 1 = invert result)
-		// Y = Sign (0 = signed comparison, 1 = unsigned comparison)
-		// X = Inequality (0 = Equal, 1 = less than)
-		// 01Z doesn't make sense since the sign doesn't make a difference when comparing 2 numbers for equality.
-		Equal = 0,
-		NotEqual = 1,
-		LessThan = 4,
-		GreaterEqual = 5,
-		LessThanUnsigned = 6,
-		GreaterEqualUnsigned = 7,
-	};
-};
-
-struct CPUState
-{
-	// User-visible integer state
-	word_t m_IRegs[32];
-	word_t m_PC;
-};
-
-struct CPU
-{
-	CPUState m_State;
-	CPUState m_NextState;
-};
-
-struct Memory
-{
-	uint8_t* m_Data;
-	uint32_t m_Size;
-};
-
-union Instruction
-{
-	uint32_t m_Word;
-
-	struct _R
-	{
-		uint32_t opcode : 7;
-		uint32_t rd : 5;
-		uint32_t funct3 : 3;
-		uint32_t rs1 : 5;
-		uint32_t rs2 : 5;
-		uint32_t funct7 : 7;
-	} R;
-
-	struct _I
-	{
-		uint32_t opcode : 7;
-		uint32_t rd : 5;
-		uint32_t funct3 : 3;
-		uint32_t rs1 : 5;
-		uint32_t imm : 12;
-	} I;
-
-	struct _S
-	{
-		uint32_t opcode : 7;
-		uint32_t imm_0_4 : 5;
-		uint32_t funct3 : 3;
-		uint32_t rs1 : 5;
-		uint32_t rs2 : 5;
-		uint32_t imm_5_11 : 7;
-	} S;
-
-	struct _B
-	{
-		uint32_t opcode : 7;
-		uint32_t imm_11 : 1;
-		uint32_t imm_1_4 : 4;
-		uint32_t funct3 : 3;
-		uint32_t rs1 : 5;
-		uint32_t rs2 : 5;
-		uint32_t imm_5_10 : 6;
-		uint32_t imm_12 : 1;
-	} B;
-
-	struct _U
-	{
-		uint32_t opcode : 7;
-		uint32_t rd : 5;
-		uint32_t imm_12_31 : 20;
-	} U;
-
-	struct _J
-	{
-		uint32_t opcode : 7;
-		uint32_t rd : 5;
-		uint32_t imm_12_19 : 8;
-		uint32_t imm_11 : 1;
-		uint32_t imm_1_10 : 10;
-		uint32_t imm_20 : 1;
-	} J;
-};
-
-word_t sext(uint32_t v, uint32_t signBitPos)
-{
-	const uint32_t shiftAmount = 31 - signBitPos;
-	return (word_t)((((int32_t)v) << shiftAmount) >> shiftAmount);
-}
-
-word_t immI(Instruction instr)
-{
-	return sext(instr.I.imm, 11);
-}
-
-word_t immU(Instruction instr)
-{
-	return instr.U.imm_12_31 << 12;
-}
-
-word_t immS(Instruction instr)
-{
-	return sext(instr.S.imm_0_4 | (instr.S.imm_5_11 << 5), 11);
-}
-
-word_t immJ(Instruction instr)
-{
-	return sext((instr.J.imm_1_10 << 1) | (instr.J.imm_11 << 11) | (instr.J.imm_12_19 << 12) | (instr.J.imm_20 << 20), 20);
-}
-
-word_t immB(Instruction instr)
-{
-	return sext((instr.B.imm_1_4 << 1) | (instr.B.imm_5_10 << 5) | (instr.B.imm_11 << 11) | (instr.B.imm_12 << 12), 12);
-}
-
-bool memInit(Memory* mem, uint32_t size)
-{
-	mem->m_Data = (uint8_t*)malloc(size);
-	if (!mem->m_Data) {
-		return false;
-	}
-
-	memset(mem->m_Data, 0x55, size);
-	mem->m_Size = size;
-
-	return true;
-}
-
-uint32_t memRead32(Memory* mem, uint32_t addr)
-{
-	assert(addr + 3 < mem->m_Size);
-	return *(uint32_t*)&mem->m_Data[addr];
-}
-
-void memWrite32(Memory* mem, uint32_t addr, uint32_t val)
-{
-	assert(addr + 3 < mem->m_Size);
-	*(uint32_t*)&mem->m_Data[addr] = val;
-}
-
-void memWrite16(Memory* mem, uint32_t addr, uint16_t val)
-{
-	assert(addr + 1 < mem->m_Size);
-	*(uint16_t*)&mem->m_Data[addr] = val;
-}
-
-void memWrite8(Memory* mem, uint32_t addr, uint8_t val)
-{
-	assert(addr < mem->m_Size);
-	mem->m_Data[addr] = val;
-}
-
-uint8_t* memVirtualToPhysical(Memory* mem, uint32_t addr)
-{
-	assert(addr < mem->m_Size);
-	return &mem->m_Data[addr];
-}
-
-word_t cpuGetPC(CPU* cpu)
-{
-	return cpu->m_State.m_PC;
-}
-
-void cpuSetPC(CPU* cpu, word_t val)
-{
-	cpu->m_NextState.m_PC = val;
-}
-
-word_t cpuGetRegister(CPU* cpu, uint32_t reg)
-{
-	return cpu->m_State.m_IRegs[reg];
-}
-
-void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val)
-{
-	if (reg != 0) {
-		cpu->m_NextState.m_IRegs[reg] = val;
-	}
-}
-
-void cpuReset(CPU* cpu, word_t pc, word_t sp)
-{
-	cpu->m_NextState.m_IRegs[0] = 0;
-	cpu->m_NextState.m_IRegs[2] = sp;
-	cpu->m_NextState.m_PC = pc;
-	memcpy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
-}
-
-void cpuExecuteSystemCall(CPU* cpu, Memory* mem)
-{
-	uint32_t sysCallID = cpuGetRegister(cpu, 17);
-	switch (sysCallID) {
-	case SYS_fstat:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, 10), memVirtualToPhysical(mem, cpuGetRegister(cpu, 11))));
-		break;
-	case SYS_brk:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_brk(cpuGetRegister(cpu, 10)));
-		break;
-	case SYS_close:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_close((int)cpuGetRegister(cpu, 10)));
-		break;
-	case SYS_lseek:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, 10), (size_t)cpuGetRegister(cpu, 11), (int)cpuGetRegister(cpu, 12)));
-		break;
-	case SYS_read:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_read((int)cpuGetRegister(cpu, 10), (char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
-		break;
-	case SYS_write:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_write((int)cpuGetRegister(cpu, 10), (const char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
-		break;
-	case SYS_exit:
-		sys_exit((int)cpuGetRegister(cpu, 10));
-		break;
-	default:
-		printf("0x%08X: ECALL a0=%08X, a1=%08X, a2=%08X, a3=%08X, a4=%08X, a5=%08X, a6=%08X, a7=%08X\n"
-			, cpuGetPC(cpu)
-			, cpuGetRegister(cpu, 10)
-			, cpuGetRegister(cpu, 11)
-			, cpuGetRegister(cpu, 12)
-			, cpuGetRegister(cpu, 13)
-			, cpuGetRegister(cpu, 14)
-			, cpuGetRegister(cpu, 15)
-			, cpuGetRegister(cpu, 16)
-			, cpuGetRegister(cpu, 17));
-		assert(false); // Unknwon syscall
-		break;
-	}
-}
-
-// Issues: Multiple memory reads and writes in a single cycle (assuming Von Neumann architecture).
-// A single read (read next instruction) and a single write (i.e. from store instructions) can be implemented
-// by using both the rising and falling edge of the clock. But a 2nd read (i.e. from load instructions) cannot
-// be implemented (requires a combinational read from memory; if at all possible).
-void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
-{
-	Instruction instr;
-	instr.m_Word = memRead32(mem, cpuGetPC(cpu));
-
-	cpuSetPC(cpu, cpuGetPC(cpu) + 4);
-
-	// Opcode is common to all instruction types.
-	const uint32_t opcode = instr.R.opcode;
-	assert((opcode & 3) == 3);
-	switch (opcode) {
-	case Opcode::Load:
-		switch (instr.I.funct3) {
-		case 0: // LB
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFF, 7));
-			break;
-		case 1: // LH
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFFFF, 15));
-			break;
-		case 2: // LW
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr)));
-			break;
-		case 4: // LBU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFF);
-			break;
-		case 5: // LHU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFFFF);
-			break;
-		default:
-			assert(false);
-			break;
-		}
-		break;
-	case Opcode::MiscMem:
-		// TODO: 
-		assert(false); // Not implemented yet.
-		break;
-	case Opcode::OpImm:
-		switch (instr.I.funct3) {
-		case ALUOp::AddSub:
-			cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) + immI(instr));
-			break;
-		case ALUOp::ShiftLeft:
-		{
-			const uint32_t shamt = instr.I.imm & 0x1F;
-			cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) << shamt);
-		}
-			break;
-		case ALUOp::SLT:
-			cpuSetRegister(cpu, instr.I.rd, (word_t)((int32_t)cpuGetRegister(cpu, instr.I.rs1) < (int32_t)immI(instr) ? 1 : 0));
-			break;
-		case ALUOp::SLTU:
-			cpuSetRegister(cpu, instr.I.rd, (word_t)(cpuGetRegister(cpu, instr.I.rs1) < immI(instr) ? 1 : 0));
-			break;
-		case ALUOp::Xor:
-			cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) ^ immI(instr));
-			break;
-		case ALUOp::ShiftRight:
-		{
-			const uint32_t shamt = instr.I.imm & 0x1F;
-			const uint32_t arithmeticShift = instr.I.imm & 0x800;
-			if (arithmeticShift) {
-				cpuSetRegister(cpu, instr.I.rd, (word_t)((int32_t)cpuGetRegister(cpu, instr.I.rs1) >> shamt));
-			} else {
-				cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) >> shamt);
-			}
-		}
-			break;
-		case ALUOp::Or:
-			cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) | immI(instr));
-			break;
-		case ALUOp::And:
-			cpuSetRegister(cpu, instr.I.rd, cpuGetRegister(cpu, instr.I.rs1) & immI(instr));
-			break;
-		}
-		break;
-	case Opcode::AUIPC:
-		cpuSetRegister(cpu, instr.U.rd, cpuGetPC(cpu) + immU(instr));
-		break;
-	case Opcode::Store:
-		switch (instr.S.funct3) {
-		case 0: // SB
-			memWrite8(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), (uint8_t)(cpuGetRegister(cpu, instr.S.rs2) & 0xFF));
-			break;
-		case 1: // SH
-			memWrite16(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), (uint16_t)(cpuGetRegister(cpu, instr.S.rs2) & 0xFFFF));
-			break;
-		case 2: // SW
-			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2));
-			break;
-		default:
-			assert(false); // Unknown width value.
-			break;
-		}
-		break;
-	case Opcode::Op:
-		switch (instr.R.funct3) {
-		case ALUOp::AddSub:
-			if (instr.R.funct7 != 0) {
-				cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) - cpuGetRegister(cpu, instr.R.rs2));
-			} else {
-				cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) + cpuGetRegister(cpu, instr.R.rs2));
-			}
-			break;
-		case ALUOp::ShiftLeft:
-			cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) << (cpuGetRegister(cpu, instr.R.rs2) & 0x1F));
-			break;
-		case ALUOp::SLT:
-			cpuSetRegister(cpu, instr.R.rd, (word_t)((int32_t)cpuGetRegister(cpu, instr.R.rs1) < (int32_t)cpuGetRegister(cpu, instr.R.rs2) ? 1 : 0));
-			break;
-		case ALUOp::SLTU:
-			cpuSetRegister(cpu, instr.R.rd, (word_t)(cpuGetRegister(cpu, instr.R.rs1) < cpuGetRegister(cpu, instr.R.rs2) ? 1 : 0));
-			break;
-		case ALUOp::Xor:
-			cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) ^ cpuGetRegister(cpu, instr.R.rs2));
-			break;
-		case ALUOp::ShiftRight:
-			if (instr.R.funct7 != 0) {
-				cpuSetRegister(cpu, instr.R.rd, (word_t)((int32_t)cpuGetRegister(cpu, instr.R.rs1) >> (cpuGetRegister(cpu, instr.R.rs2) & 0x1F)));
-			} else {
-				cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) >> (cpuGetRegister(cpu, instr.R.rs2) & 0x1F));
-			}
-			break;
-		case ALUOp::Or:
-			cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) | cpuGetRegister(cpu, instr.R.rs2));
-			break;
-		case ALUOp::And:
-			cpuSetRegister(cpu, instr.R.rd, cpuGetRegister(cpu, instr.R.rs1) & cpuGetRegister(cpu, instr.R.rs2));
-			break;
-		}
-		break;
-	case Opcode::LUI:
-		cpuSetRegister(cpu, instr.U.rd, immU(instr));
-		break;
-	case Opcode::Branch:
-	{
-		bool jump = false;
-		switch (instr.B.funct3) {
-		case BranchOp::Equal:
-			jump = cpuGetRegister(cpu, instr.B.rs1) == cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		case BranchOp::NotEqual:
-			jump = cpuGetRegister(cpu, instr.B.rs1) != cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		case BranchOp::LessThan:
-			jump = (int32_t)cpuGetRegister(cpu, instr.B.rs1) < (int32_t)cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		case BranchOp::GreaterEqual:
-			jump = (int32_t)cpuGetRegister(cpu, instr.B.rs1) >= (int32_t)cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		case BranchOp::LessThanUnsigned:
-			jump = cpuGetRegister(cpu, instr.B.rs1) < cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		case BranchOp::GreaterEqualUnsigned:
-			jump = cpuGetRegister(cpu, instr.B.rs1) >= cpuGetRegister(cpu, instr.B.rs2);
-			break;
-		default:
-			assert(false); // Invalid branch code
-			break;
-		}
-
-		if (jump) {
-			cpuSetPC(cpu, cpuGetPC(cpu) + immB(instr));
-		}
-	}
-		break;
-	case Opcode::JALR:
-		// TODO: The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
-		// address is not aligned to a four-byte boundary.
-		assert(instr.I.funct3 == 0);
-		cpuSetRegister(cpu, instr.I.rd, cpuGetPC(cpu) + 4);
-		cpuSetPC(cpu, (cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFFFFFFFE);
-		break;
-	case Opcode::JAL:
-		// TODO: The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
-		// address is not aligned to a four-byte boundary.
-		cpuSetRegister(cpu, instr.J.rd, cpuGetPC(cpu) + 4);
-		cpuSetPC(cpu, cpuGetPC(cpu) + immJ(instr));
-		break;
-	case Opcode::System:
-		assert(instr.I.funct3 == 0);
-		assert(instr.I.rd == 0);
-		assert(instr.I.rs1 == 0);
-		switch (instr.I.imm) {
-		case 0: // ECALL
-			cpuExecuteSystemCall(cpu, mem);
-			break;
-		case 1: // EBREAK
-			assert(false); // Not implemented
-			break;
-		default:
-			assert(false); // Unknown SYSTEM instruction
-		}
-		break;
-	default:
-		assert(false);
-		break;
-	}
-
-	// Switch states
-	memcpy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
-}
-}
 
 uint8_t* readFile(const char* filename, uint32_t& fileSize)
 {
@@ -533,40 +85,297 @@ uint8_t* readFile(const char* filename, uint32_t& fileSize)
 	return data;
 }
 
+int initEmulator(App* app)
+{
+	const uint32_t ramSize = (uint32_t)app->m_RAMSizeMB << 20;
+	const uint32_t stackSize = (uint32_t)app->m_StackSizeKB << 10;
+
+	Memory* mem = memCreate(ramSize);
+	if (!mem) {
+		return INIT_ERR_NO_MEMORY;
+	}
+
+	// Create a RW region for the stack at the end of the address space
+	memAddRegion(mem, ramSize - stackSize, stackSize, RegionFlags::Read | RegionFlags::Write);
+
+	elf::Info elfInfo = elf::load(app->m_ELFData, mem);
+	if (elfInfo.m_EntryPointAddr == ~0u) {
+		return INIT_ERR_INVALID_ELF;
+	}
+
+	sys__init(mem, elfInfo.m_InitialBreak);
+
+	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));
+	riscv::cpuReset(cpu, elfInfo.m_EntryPointAddr, ramSize - 4);
+
+	app->m_CPU = cpu;
+	app->m_RAM = mem;
+
+	return INIT_ERR_SUCCESS;
+}
+
+void shutdownEmulator(App* app)
+{
+	free(app->m_CPU);
+	app->m_CPU = nullptr;
+
+	memDestroy(app->m_RAM);
+	app->m_RAM = nullptr;
+}
+
+void doMainMenu(App* app)
+{
+	if (ImGui::BeginMainMenuBar()) {
+		if (ImGui::BeginMenu("File")) {
+			if (ImGui::MenuItem("Exit", nullptr)) {
+				glfwSetWindowShouldClose(app->m_GLFWWindow, 1);
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Windows")) {
+			if (ImGui::MenuItem("Setup", nullptr)) {
+				app->m_WinVis |= UI_WIN_SETUP;
+			}
+			if (ImGui::MenuItem("Debugger", nullptr)) {
+				app->m_WinVis |= UI_WIN_DEBUG;
+			}
+
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMainMenuBar();
+	}
+}
+
+void doWin_Setup(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_SETUP) != 0;
+	if (ImGui::Begin("Setup", &opened, ImGuiWindowFlags_ShowBorders)) {
+		if (!app->m_CPU) {
+			ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
+			ImGui::SliderInt("Stack [KB]", &app->m_StackSizeKB, 8, 1024);
+
+			static char elfFilename[_MAX_PATH] = { 0 }; // TODO: Move to App?
+			ImGui::InputText("##ELF", elfFilename, _MAX_PATH, ImGuiInputTextFlags_ReadOnly);
+			ImGui::SameLine();
+			if (ImGui::Button("Browse...")) {
+				nfdchar_t* outPath = nullptr;
+				nfdresult_t result = NFD_OpenDialog(nullptr, nullptr, &outPath);
+				if (result == NFD_OKAY) {
+					bx::snprintf(elfFilename, _MAX_PATH, "%s", outPath);
+
+					app->m_ELFData = readFile(outPath, app->m_ELFSize);
+
+					free(outPath);
+				}
+			}
+		}
+
+		if (ImGui::CollapsingHeader("ELF Info", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (!app->m_ELFData) {
+				ImGui::Text("No ELF loaded yet.");
+			} else {
+				elf::Elf32_Ehdr* header = (elf::Elf32_Ehdr*)app->m_ELFData;
+				if (!elf::isELF32(header->e_ident)) {
+					ImGui::Text("Loaded file is not a valid 32-bit ELF file.");
+				} else {
+					ImGui::Text("Type: %u", header->e_type);
+					ImGui::Text("Machine: %u", header->e_machine);
+					ImGui::Text("Version: %u", header->e_version);
+					ImGui::Text("Entry: %08Xh", header->e_entry);
+					ImGui::Text("Flags: %08Xh", header->e_flags);
+					
+					// TODO: Show program/section headers
+					if (ImGui::CollapsingHeader("Program headers")) {
+						ImGui::Text("Not implemented yet.");
+					}
+					if (ImGui::CollapsingHeader("Section headers")) {
+						ImGui::Text("Not implemented yet.");
+					}
+				}
+			}
+		}
+
+		if (app->m_CPU) {
+			ImGui::Text("Emulator is currently running.");
+			if (ImGui::Button("Stop")) {
+				shutdownEmulator(app);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Restart")) {
+				shutdownEmulator(app);
+				initEmulator(app);
+			}
+		} else {
+			if (app->m_ELFData) {
+				if (ImGui::Button("Start", ImVec2(-1, 0))) {
+					app->m_InitError = initEmulator(app);
+				}
+				if (app->m_InitError != INIT_ERR_SUCCESS) {
+					ImGui::Text("Init Error %d", app->m_InitError);
+				}
+			}
+		}
+	}
+	ImGui::End();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_SETUP;
+	} else {
+		app->m_WinVis |= UI_WIN_SETUP;
+	}
+}
+
+void doWin_Debugger(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(500, 580), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(300, 20), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_DEBUG) != 0;
+	if (ImGui::Begin("Debugger", &opened, ImGuiWindowFlags_ShowBorders)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			if (ImGui::Button("Go to PC")) {
+				app->m_ScrollToPC = true;
+			}
+			ImGui::SameLine();
+			if (app->m_Run) {
+				if (ImGui::Button("Stop")) {
+					app->m_NumCPUSteps = 0;
+					app->m_Run = false;
+				}
+			} else {
+				if (ImGui::Button("Run")) {
+					app->m_NumCPUSteps = 1;
+					app->m_Run = true;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Step 1")) {
+					app->m_NumCPUSteps = 1;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Step 100")) {
+					app->m_NumCPUSteps = 100;
+				}
+			}
+
+			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
+
+			const uint32_t numWords = app->m_RAM->m_Size / 4; // TODO: Disassemble only the .text section.
+			const uint32_t pc = cpuGetPC(app->m_CPU);
+
+			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
+			if (ImGui::ListBoxHeader("##disasm", ImVec2(-1, -1))) {
+				const float scrollY = app->m_ScrollToPC ? (pc / 4) * lineHeight : ImGui::GetScrollY();
+				const uint32_t scrollAddr = 4 * (uint32_t)bx::ffloor(scrollY / lineHeight);
+
+				ImGui::SetCursorPosY(scrollY);
+
+				const float winHeight = ImGui::GetWindowHeight();
+				const uint32_t numLinesVisible = (uint32_t)bx::fceil(winHeight / lineHeight);
+
+				const uint32_t minAddr = scrollAddr;
+				const uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
+
+				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
+					uint32_t ir = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
+					char disasm[256];
+					riscv::disasmInstruction(ir, addr, disasm, 256);
+					ImGui::Selectable(disasm, addr == pc);
+
+					if (app->m_ScrollToPC && addr == pc) {
+						ImGui::SetScrollHere();
+						app->m_ScrollToPC = false;
+					}
+				}
+
+				ImGui::ListBoxFooter();
+			}
+		}
+	}
+	ImGui::End();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_SETUP;
+	} else {
+		app->m_WinVis |= UI_WIN_SETUP;
+	}
+}
+
+void doUI(App* app)
+{
+	doMainMenu(app);
+
+	if (app->m_WinVis & UI_WIN_SETUP) {
+		doWin_Setup(app);
+	}
+	if (app->m_WinVis & UI_WIN_DEBUG) {
+		doWin_Debugger(app);
+	}
+}
+
+void glfw_errorCallback(int error, const char* description)
+{
+	RISCV_CHECK(false, "GLFW Error %d: %s", error, description);
+	printf("GLFW Error %d: %s\n", error, description);
+}
+
 int main()
 {
-//	const char* elfFilename = "./elfs/hello";
-	const char* elfFilename = "./elfs/input";
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG);
 
-	uint32_t elfSize = ~0u;
-	uint8_t* elfData = readFile(elfFilename, elfSize);
-	if (!elfData) {
-		printf("Failed read ELF file\n");
-		return 1;
+	// Setup window
+	glfwSetErrorCallback(glfw_errorCallback);
+	if (!glfwInit()) {
+		return -1;
 	}
 
-	riscv::Memory mem;
-	riscv::memInit(&mem, 1024 << 10); // 1MB RAM
+	app.m_GLFWWindow = glfwCreateWindow(800, 600, "RISC-V Emulator (RV32I)", nullptr, nullptr);
+	glfwMakeContextCurrent(app.m_GLFWWindow);
+//	glfwSwapInterval(0);
 
-	uint32_t entryPointAddr = elf::load(elfData, mem.m_Data, mem.m_Size);
+	// Setup ImGui binding
+	ImGui_ImplGlfw_Init(app.m_GLFWWindow, true);
 
-	free(elfData);
+	const ImVec4 clear_color = ImColor(114, 144, 154);
 
-	if (entryPointAddr == ~0u) {
-		printf("Failed to load ELF file into memory.\n");
-		return 1;
+	while (!glfwWindowShouldClose(app.m_GLFWWindow)) {
+		glfwPollEvents();
+		ImGui_ImplGlfw_NewFrame();
+
+		doUI(&app);
+
+		if (app.m_CPU && app.m_RAM) {
+			if (app.m_NumCPUSteps != 0) {
+				uint32_t ns = app.m_NumCPUSteps;
+				while (ns-- > 0) {
+					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_RAM);
+				}
+
+				app.m_NumCPUSteps = app.m_Run ? app.m_NumCPUSteps : 0;
+				app.m_ScrollToPC = true;
+			}
+		}
+
+		// Rendering
+		int display_w, display_h;
+		glfwGetFramebufferSize(app.m_GLFWWindow, &display_w, &display_h);
+		glViewport(0, 0, display_w, display_h);
+		glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
+		glClear(GL_COLOR_BUFFER_BIT);
+		ImGui::Render();
+		glfwSwapBuffers(app.m_GLFWWindow);
 	}
 
-	sys__init();
-
-	riscv::CPU cpu;
-	riscv::cpuReset(&cpu, entryPointAddr, mem.m_Size - 4);
-
-	while (sys__isRunning()) {
-		riscv::cpuTick_SingleCycle(&cpu, &mem);
-	}
-
-	printf("Application exited with code: %d\n", sys__getExitCode());
+	// Cleanup
+	ImGui_ImplGlfw_Shutdown();
+	glfwTerminate();
 
 	return 0;
 }

@@ -4,3 +4,10 @@
 /RISCVEmu.v12.suo
 /RISCVEmu.vcxproj.filters
 /RISCVEmu.vcxproj.user
+/bin/RISCVEmu_x64_Debug.exe
+/bin/RISCVEmu_x64_Debug.ilk
+/bin/RISCVEmu_x64_Debug.pdb
+/bin/imgui.ini
+/trace.txt
+/trace_regs.txt
+/trace_tranlated.txt
