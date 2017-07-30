@@ -23,8 +23,9 @@
 #define INIT_ERR_NO_MEMORY   1
 #define INIT_ERR_INVALID_ELF 2
 
-#define UI_WIN_SETUP  0x00000001
-#define UI_WIN_DEBUG  0x00000002
+#define UI_WIN_SETUP     0x00000001
+#define UI_WIN_DEBUG     0x00000002
+#define UI_WIN_REGISTERS 0x00000004
 
 struct App
 {
@@ -110,6 +111,7 @@ int initEmulator(App* app)
 
 	app->m_CPU = cpu;
 	app->m_RAM = mem;
+	app->m_ScrollToPC = true;
 
 	return INIT_ERR_SUCCESS;
 }
@@ -241,6 +243,7 @@ void doWin_Debugger(App* app)
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
+			// TODO: move those to a toolbar?
 			if (ImGui::Button("Go to PC")) {
 				app->m_ScrollToPC = true;
 			}
@@ -270,41 +273,146 @@ void doWin_Debugger(App* app)
 			const uint32_t numWords = app->m_RAM->m_Size / 4; // TODO: Disassemble only the .text section.
 			const uint32_t pc = cpuGetPC(app->m_CPU);
 
+			// TODO: Check if it's possible to replicate OllyDbg's disasm window (3-column layout, addr/instr/disasm).
+			// E.g. https://isc.sans.edu/diaryimages/0749464396deecb99c853d2cbead5ebb
+			// Unfortunately, it seems that ImGui's column API doesn't work correctly in this case (i.e. cannot change
+			// column widths if a selectable is spans the whole row, scrolling with SetScrollHere() doesn't seem to work
+			// etc.)
 			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
-			if (ImGui::ListBoxHeader("##disasm", ImVec2(-1, -1))) {
-				const float scrollY = app->m_ScrollToPC ? (pc / 4) * lineHeight : ImGui::GetScrollY();
-				const uint32_t scrollAddr = 4 * (uint32_t)bx::ffloor(scrollY / lineHeight);
-
-				ImGui::SetCursorPosY(scrollY);
-
+			if (ImGui::BeginChild("##disasm", ImVec2(-1, -1), true)) {
 				const float winHeight = ImGui::GetWindowHeight();
-				const uint32_t numLinesVisible = (uint32_t)bx::fceil(winHeight / lineHeight);
+				const uint32_t numLinesVisible = (uint32_t)bx::ffloor(winHeight / lineHeight);
 
-				const uint32_t minAddr = scrollAddr;
-				const uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
+				const float scrollY = ImGui::GetScrollY();
+				float newScrollY = scrollY;
+				uint32_t scrollAddr = 4 * (uint32_t)bx::ffloor(scrollY / lineHeight);
+				uint32_t minAddr = scrollAddr;
+				uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
+				if (app->m_ScrollToPC && (pc <= minAddr || pc >= maxAddr)) {
+					if (pc < minAddr) {
+						minAddr = pc > 4 ? pc - 4 : 0;
+						maxAddr = bx::uint32_min(minAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
+					} else {
+						maxAddr = bx::uint32_min(pc + 4, app->m_RAM->m_Size - 4);
+						minAddr = maxAddr > numLinesVisible * 4 ? maxAddr - numLinesVisible * 4 : 0;
+					}
+
+					newScrollY = (minAddr / 4) * lineHeight;
+				} else {
+					app->m_ScrollToPC = false;
+				}
+
+				ImGui::SetCursorPosY(newScrollY);
+				if (app->m_ScrollToPC) {
+					ImGui::SetScrollFromPosY(newScrollY - scrollY, 0.0f);
+					app->m_ScrollToPC = false;
+				}
 
 				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
 					uint32_t ir = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
 					char disasm[256];
 					riscv::disasmInstruction(ir, addr, disasm, 256);
-					ImGui::Selectable(disasm, addr == pc);
 
-					if (app->m_ScrollToPC && addr == pc) {
-						ImGui::SetScrollHere();
-						app->m_ScrollToPC = false;
-					}
+					ImGui::Selectable(disasm, addr == pc);
 				}
 
-				ImGui::ListBoxFooter();
+				ImGui::EndChild();
 			}
 		}
 	}
 	ImGui::End();
 
 	if (!opened) {
-		app->m_WinVis &= ~UI_WIN_SETUP;
+		app->m_WinVis &= ~UI_WIN_DEBUG;
 	} else {
-		app->m_WinVis |= UI_WIN_SETUP;
+		app->m_WinVis |= UI_WIN_DEBUG;
+	}
+}
+
+void doWin_Registers(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_REGISTERS) != 0;
+	if (ImGui::Begin("Registers", &opened, ImGuiWindowFlags_ShowBorders)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			ImGui::TextWrapped("ra: %08Xh\tsp: %08Xh\tgp: %08Xh\ttp: %08Xh\tt0: %08Xh\tt1: %08Xh\tt2: %08Xh\ts0: %08Xh\ts1: %08Xh\ta0: %08Xh\ta1: %08Xh\ta2: %08Xh\ta3: %08Xh\ta4: %08Xh\ta5: %08Xh\ta6: %08Xh\ta7: %08Xh\ts2: %08Xh\ts3: %08Xh\ts4: %08Xh\ts5: %08Xh\ts6: %08Xh\ts7: %08Xh\ts8: %08Xh\ts9: %08Xh\ts10: %08Xh\ts11: %08Xh\tt3: %08Xh\tt4: %08Xh\tt5: %08Xh\tt6: %08Xh"
+				, riscv::cpuGetRegister(app->m_CPU, 1)
+				, riscv::cpuGetRegister(app->m_CPU, 2)
+				, riscv::cpuGetRegister(app->m_CPU, 3)
+				, riscv::cpuGetRegister(app->m_CPU, 4)
+				, riscv::cpuGetRegister(app->m_CPU, 5)
+				, riscv::cpuGetRegister(app->m_CPU, 6)
+				, riscv::cpuGetRegister(app->m_CPU, 7)
+				, riscv::cpuGetRegister(app->m_CPU, 8)
+				, riscv::cpuGetRegister(app->m_CPU, 9)
+				, riscv::cpuGetRegister(app->m_CPU, 10)
+				, riscv::cpuGetRegister(app->m_CPU, 11)
+				, riscv::cpuGetRegister(app->m_CPU, 12)
+				, riscv::cpuGetRegister(app->m_CPU, 13)
+				, riscv::cpuGetRegister(app->m_CPU, 14)
+				, riscv::cpuGetRegister(app->m_CPU, 15)
+				, riscv::cpuGetRegister(app->m_CPU, 16)
+				, riscv::cpuGetRegister(app->m_CPU, 17)
+				, riscv::cpuGetRegister(app->m_CPU, 18)
+				, riscv::cpuGetRegister(app->m_CPU, 19)
+				, riscv::cpuGetRegister(app->m_CPU, 20)
+				, riscv::cpuGetRegister(app->m_CPU, 21)
+				, riscv::cpuGetRegister(app->m_CPU, 22)
+				, riscv::cpuGetRegister(app->m_CPU, 23)
+				, riscv::cpuGetRegister(app->m_CPU, 24)
+				, riscv::cpuGetRegister(app->m_CPU, 25)
+				, riscv::cpuGetRegister(app->m_CPU, 26)
+				, riscv::cpuGetRegister(app->m_CPU, 27)
+				, riscv::cpuGetRegister(app->m_CPU, 28)
+				, riscv::cpuGetRegister(app->m_CPU, 29)
+				, riscv::cpuGetRegister(app->m_CPU, 30)
+				, riscv::cpuGetRegister(app->m_CPU, 31));
+			//if (ImGui::CollapsingHeader("Registers")) {
+			//	ImGui::Text("zero: 00000000h");
+			//	ImGui::Text("ra: %08Xh", riscv::cpuGetRegister(app->m_CPU, 1));
+			//	ImGui::Text("sp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 2));
+			//	ImGui::Text("gp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 3));
+			//	ImGui::Text("tp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 4));
+			//	ImGui::Text("t0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 5));
+			//	ImGui::Text("t1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 6));
+			//	ImGui::Text("t2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 7));
+			//	ImGui::Text("s0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 8));
+			//	ImGui::Text("s1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 9));
+			//	ImGui::Text("a0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 10));
+			//	ImGui::Text("a1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 11));
+			//	ImGui::Text("a2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 12));
+			//	ImGui::Text("a3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 13));
+			//	ImGui::Text("a4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 14));
+			//	ImGui::Text("a5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 15));
+			//	ImGui::Text("a6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 16));
+			//	ImGui::Text("a7: %08Xh", riscv::cpuGetRegister(app->m_CPU, 17));
+			//	ImGui::Text("s2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 18));
+			//	ImGui::Text("s3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 19));
+			//	ImGui::Text("s4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 20));
+			//	ImGui::Text("s5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 21));
+			//	ImGui::Text("s6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 22));
+			//	ImGui::Text("s7: %08Xh", riscv::cpuGetRegister(app->m_CPU, 23));
+			//	ImGui::Text("s8: %08Xh", riscv::cpuGetRegister(app->m_CPU, 24));
+			//	ImGui::Text("s9: %08Xh", riscv::cpuGetRegister(app->m_CPU, 25));
+			//	ImGui::Text("s10: %08Xh", riscv::cpuGetRegister(app->m_CPU, 26));
+			//	ImGui::Text("s11: %08Xh", riscv::cpuGetRegister(app->m_CPU, 27));
+			//	ImGui::Text("t3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 28));
+			//	ImGui::Text("t4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 29));
+			//	ImGui::Text("t5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 30));
+			//	ImGui::Text("t6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 31));
+			//}
+		}
+	}
+	ImGui::End();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_REGISTERS;
+	} else {
+		app->m_WinVis |= UI_WIN_REGISTERS;
 	}
 }
 
@@ -318,6 +426,9 @@ void doUI(App* app)
 	if (app->m_WinVis & UI_WIN_DEBUG) {
 		doWin_Debugger(app);
 	}
+	if (app->m_WinVis & UI_WIN_REGISTERS) {
+		doWin_Registers(app);
+	}
 }
 
 void glfw_errorCallback(int error, const char* description)
@@ -328,7 +439,7 @@ void glfw_errorCallback(int error, const char* description)
 
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG);
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS);
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
