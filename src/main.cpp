@@ -24,9 +24,10 @@
 #define INIT_ERR_NO_MEMORY   1
 #define INIT_ERR_INVALID_ELF 2
 
-#define UI_WIN_SETUP     0x00000001
-#define UI_WIN_DEBUG     0x00000002
-#define UI_WIN_REGISTERS 0x00000004
+#define UI_WIN_SETUP       0x00000001
+#define UI_WIN_DEBUG       0x00000002
+#define UI_WIN_REGISTERS   0x00000004
+#define UI_WIN_BREAKPOINTS 0x00000008
 
 struct App
 {
@@ -149,6 +150,9 @@ void doMainMenu(App* app)
 			}
 			if (ImGui::MenuItem("Debugger", nullptr)) {
 				app->m_WinVis |= UI_WIN_DEBUG;
+			}
+			if (ImGui::MenuItem("Registers", nullptr)) {
+				app->m_WinVis |= UI_WIN_REGISTERS;
 			}
 
 			ImGui::EndMenu();
@@ -482,6 +486,43 @@ void doWin_Registers(App* app)
 	}
 }
 
+void doWin_Breakpoints(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_BREAKPOINTS) != 0;
+	if (ImGui::Begin("Breakpoints", &opened, ImGuiWindowFlags_ShowBorders)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			// 2 column layout
+			ImGui::Columns(2, nullptr, true);
+
+			const uint32_t nbp = dbgGetNumCodeBreakpoints(app->m_Dbg);
+			for (uint32_t i = 0; i < nbp; ++i) {
+				const uint32_t addr = dbgGetCodeBreakpointAddressByID(app->m_Dbg, i);
+
+				ImGui::PushID(addr);
+				ImGui::Text("%08X", addr);
+				ImGui::NextColumn();
+				if (ImGui::Button("Delete")) {
+					dbgRemoveCodeBreakpoint(app->m_Dbg, addr);
+				}
+				ImGui::NextColumn();
+				ImGui::PopID();
+			}
+		}
+	}
+	ImGui::End();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_BREAKPOINTS;
+	} else {
+		app->m_WinVis |= UI_WIN_BREAKPOINTS;
+	}
+}
+
 void doUI(App* app)
 {
 	doMainMenu(app);
@@ -489,11 +530,17 @@ void doUI(App* app)
 	if (app->m_WinVis & UI_WIN_SETUP) {
 		doWin_Setup(app);
 	}
+	
 	if (app->m_WinVis & UI_WIN_DEBUG) {
 		doWin_Debugger(app);
 	}
+	
 	if (app->m_WinVis & UI_WIN_REGISTERS) {
 		doWin_Registers(app);
+	}
+
+	if (app->m_WinVis & UI_WIN_BREAKPOINTS) {
+		doWin_Breakpoints(app);
 	}
 }
 
@@ -505,7 +552,7 @@ void glfw_errorCallback(int error, const char* description)
 
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS);
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS);
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
@@ -513,7 +560,7 @@ int main()
 		return -1;
 	}
 
-	app.m_GLFWWindow = glfwCreateWindow(800, 600, "RISC-V Emulator (RV32I)", nullptr, nullptr);
+	app.m_GLFWWindow = glfwCreateWindow(1280, 720, "RISC-V Emulator (RV32I)", nullptr, nullptr);
 	glfwMakeContextCurrent(app.m_GLFWWindow);
 //	glfwSwapInterval(0);
 

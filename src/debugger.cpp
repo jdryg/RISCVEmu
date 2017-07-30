@@ -38,3 +38,22 @@ void dbgRemoveCodeBreakpoint(Debugger* dbg, uint32_t addr)
 		dbg->m_CodeBreakpoints.erase(iter);
 	}
 }
+
+uint32_t dbgGetNumCodeBreakpoints(const Debugger* dbg)
+{
+	return (uint32_t)dbg->m_CodeBreakpoints.size();
+}
+
+uint32_t dbgGetCodeBreakpointAddressByID(const Debugger* dbg, uint32_t id)
+{
+	if (id >= dbg->m_CodeBreakpoints.size()) {
+		return ~0u;
+	}
+
+	Uint32Set::const_iterator it = dbg->m_CodeBreakpoints.begin();
+	while (id-- > 0) {
+		it++;
+	}
+
+	return *it;
+}
