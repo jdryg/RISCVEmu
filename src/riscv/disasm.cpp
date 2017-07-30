@@ -57,7 +57,13 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 	case Opcode::OpImm:
 		switch (instr.I.funct3) {
 		case ALUOp::AddSub:
-			bx::snprintf(buf, len, "%08X: %08X\taddi %s, %s, %03Xh", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], immI(instr));
+			if (instr.I.rs1 == 0) {
+				bx::snprintf(buf, len, "%08X: %08X\tli %s, %03Xh", addr, instr, s_RegABIName[instr.I.rd], immI(instr));
+			} else if (instr.I.imm == 0) {
+				bx::snprintf(buf, len, "%08X: %08X\tmv %s, %s", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1]);
+			} else {
+				bx::snprintf(buf, len, "%08X: %08X\taddi %s, %s, %03Xh", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], immI(instr));
+			}
 			break;
 		case ALUOp::ShiftLeft:
 			bx::snprintf(buf, len, "%08X: %08X\tslli %s, %s, %02Xh", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], instr.I.imm & 0x1F);
@@ -87,7 +93,7 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 		}
 		break;
 	case Opcode::AUIPC:
-		bx::snprintf(buf, len, "%08X: %08X\tauipc %s, %05Xh", addr, instr, s_RegABIName[instr.U.rd], immU(instr));
+		bx::snprintf(buf, len, "%08X: %08X\tauipc %s, %05Xh", addr, instr, s_RegABIName[instr.U.rd], instr.U.imm_12_31);
 		break;
 	case Opcode::Store:
 		switch (instr.S.funct3) {
@@ -142,7 +148,7 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 		}
 		break;
 	case Opcode::LUI:
-		bx::snprintf(buf, len, "%08X: %08X\tlui %s, %05Xh", addr, instr, s_RegABIName[instr.U.rd], immU(instr));
+		bx::snprintf(buf, len, "%08X: %08X\tlui %s, %05Xh", addr, instr, s_RegABIName[instr.U.rd], instr.U.imm_12_31);
 		break;
 	case Opcode::Branch:
 	{
@@ -172,10 +178,27 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 	}
 	break;
 	case Opcode::JALR:
-		bx::snprintf(buf, len, "%08X: %08X\tjalr %s, %s, %03Xh", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], immI(instr));
+		if (instr.I.rd == 0 && instr.I.rs1 == 1 && instr.I.imm == 0) {
+			bx::snprintf(buf, len, "%08X: %08X\tret", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], immI(instr));
+		} else if (instr.I.rd == 0 && instr.I.imm == 0) {
+			bx::snprintf(buf, len, "%08X: %08X\tjr %s", addr, instr, s_RegABIName[instr.I.rs1]);
+		} else {
+			bx::snprintf(buf, len, "%08X: %08X\tjalr %s, %s, %03Xh", addr, instr, s_RegABIName[instr.I.rd], s_RegABIName[instr.I.rs1], immI(instr));
+		}
 		break;
 	case Opcode::JAL:
-		bx::snprintf(buf, len, "%08X: %08X\tjal %s, %08Xh", addr, instr, s_RegABIName[instr.J.rd], immJ(instr));
+		if (instr.J.rd == 0) {
+			const uint32_t absAddr = addr + immJ(instr);
+			if (absAddr != addr) {
+				bx::snprintf(buf, len, "%08X: %08X\tj %08Xh", addr, instr, absAddr);
+			} else {
+				bx::snprintf(buf, len, "%08X: %08X\thlt", addr, instr);
+			}
+		} else if (instr.J.rd == 1) {
+			bx::snprintf(buf, len, "%08X: %08X\tcall %08Xh", addr, instr, addr + immJ(instr));
+		} else {
+			bx::snprintf(buf, len, "%08X: %08X\tjal %s, %08Xh", addr, instr, s_RegABIName[instr.J.rd], immJ(instr));
+		}
 		break;
 	case Opcode::System:
 		switch (instr.I.imm) {
