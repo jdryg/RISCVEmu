@@ -154,6 +154,9 @@ void doMainMenu(App* app)
 			if (ImGui::MenuItem("Registers", nullptr)) {
 				app->m_WinVis |= UI_WIN_REGISTERS;
 			}
+			if (ImGui::MenuItem("Breakpoints", nullptr)) {
+				app->m_WinVis |= UI_WIN_BREAKPOINTS;
+			}
 
 			ImGui::EndMenu();
 		}
