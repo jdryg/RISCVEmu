@@ -1,8 +1,9 @@
 #include "elf/parser.h"
 #include "riscv/cpu.h"
-#include "debug.h"
+#include "debugger.h"
 #include "memory.h"
 #include "syscall.h"
+#include "debug.h"
 
 #include <nfd/nfd.h>
 #include <bx/string.h>
@@ -32,6 +33,7 @@ struct App
 	GLFWwindow* m_GLFWWindow;
 	riscv::CPU* m_CPU;
 	Memory* m_RAM;
+	Debugger* m_Dbg;
 
 	uint8_t* m_ELFData;
 	uint32_t m_ELFSize;
@@ -48,6 +50,7 @@ struct App
 		: m_GLFWWindow(nullptr)
 		, m_CPU(nullptr)
 		, m_RAM(nullptr)
+		, m_Dbg(nullptr)
 		, m_WinVis(visibleWindows)
 		, m_ELFData(nullptr)
 		, m_ELFSize(0)
@@ -111,6 +114,7 @@ int initEmulator(App* app)
 
 	app->m_CPU = cpu;
 	app->m_RAM = mem;
+	app->m_Dbg = dbgCreate();
 	app->m_ScrollToPC = true;
 
 	return INIT_ERR_SUCCESS;
@@ -123,6 +127,9 @@ void shutdownEmulator(App* app)
 
 	memDestroy(app->m_RAM);
 	app->m_RAM = nullptr;
+
+	dbgDestroy(app->m_Dbg);
+	app->m_Dbg = nullptr;
 }
 
 void doMainMenu(App* app)
@@ -249,7 +256,7 @@ void doWin_Debugger(App* app)
 			}
 			ImGui::SameLine();
 			if (app->m_Run) {
-				if (ImGui::Button("Stop")) {
+				if (ImGui::Button("Break")) {
 					app->m_NumCPUSteps = 0;
 					app->m_Run = false;
 				}
@@ -304,14 +311,16 @@ void doWin_Debugger(App* app)
 					app->m_ScrollToPC = false;
 				}
 
-				ImGui::Columns(3, nullptr, true);
+				ImGui::Columns(4, nullptr, true);
 				static bool firstTime = true;
 				if (firstTime) {
 					ImGui::SetColumnOffset(0, 0.0f);
-					ImGui::SetColumnOffset(1, 70.0f);
-					ImGui::SetColumnOffset(2, 140.0f);
+					ImGui::SetColumnOffset(1, 28.0f);
+					ImGui::SetColumnOffset(2, 106.0f);
+					ImGui::SetColumnOffset(3, 177.0f);
 					firstTime = false;
 				}
+				ImGui::SetColumnOffset(1, 28.0f);
 
 				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
 					uint32_t instr = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
@@ -319,8 +328,18 @@ void doWin_Debugger(App* app)
 					char disasm[256];
 					riscv::disasmInstruction(instr, addr, disasm, 256);
 
+					bool hasBP = dbgHasCodeBreakpoint(app->m_Dbg, addr);
+					if (ImGui::BreakpointButton(addr, hasBP)) {
+						if (hasBP) {
+							dbgRemoveCodeBreakpoint(app->m_Dbg, addr);
+						} else {
+							dbgAddCodeBreakpoint(app->m_Dbg, addr);
+						}
+					}
+					ImGui::NextColumn();
+
 					char addrStr[32];
-					bx::snprintf(addrStr, 32, "%08X", addr);
+					bx::snprintf(addrStr, 32, "%08Xh", addr);
 					ImGui::Selectable(addrStr, addr == pc, ImGuiSelectableFlags_SpanAllColumns);
 					ImGui::SetItemAllowOverlap();
 					ImGui::NextColumn();
@@ -512,11 +531,23 @@ int main()
 		if (app.m_CPU && app.m_RAM) {
 			if (app.m_NumCPUSteps != 0) {
 				uint32_t ns = app.m_NumCPUSteps;
+				bool breakpointReached = false;
 				while (ns-- > 0) {
 					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_RAM);
+					if (dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) {
+						breakpointReached = true;
+						break;
+					}
 				}
 
-				app.m_NumCPUSteps = app.m_Run ? app.m_NumCPUSteps : 0;
+				if (app.m_Run) {
+					if (breakpointReached) {
+						app.m_Run = false;
+						app.m_NumCPUSteps = 0;
+					}
+				} else {
+					app.m_NumCPUSteps = 0;
+				}
 				app.m_ScrollToPC = true;
 			}
 		}

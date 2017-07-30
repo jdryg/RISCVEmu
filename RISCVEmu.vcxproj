@@ -164,6 +164,7 @@
     <ClCompile Include="bx\src\string.cpp" />
     <ClCompile Include="bx\src\thread.cpp" />
     <ClCompile Include="bx\src\timer.cpp" />
+    <ClCompile Include="src\debugger.cpp" />
     <ClCompile Include="src\elf\parser.cpp" />
     <ClCompile Include="src\imgui\imgui.cpp" />
     <ClCompile Include="src\imgui\imgui_draw.cpp" />
@@ -212,6 +213,7 @@
     <ClInclude Include="bx\include\bx\timer.h" />
     <ClInclude Include="bx\include\bx\uint32_t.h" />
     <ClInclude Include="src\debug.h" />
+    <ClInclude Include="src\debugger.h" />
     <ClInclude Include="src\elf\parser.h" />
     <ClInclude Include="src\imgui\imconfig.h" />
     <ClInclude Include="src\imgui\imgui.h" />
@@ -220,6 +222,7 @@
     <ClInclude Include="src\imgui\stb_rect_pack.h" />
     <ClInclude Include="src\imgui\stb_textedit.h" />
     <ClInclude Include="src\imgui\stb_truetype.h" />
+    <ClInclude Include="src\imgui\widgets\breakpoint_button.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
     <ClInclude Include="src\memory.h" />
     <ClInclude Include="src\nfd\common.h" />

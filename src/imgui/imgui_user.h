@@ -49,3 +49,4 @@ private:
 //#include "widgets/memory_editor.h"
 //#include "widgets/range_slider.h"
 //#include "widgets/log.h"
+#include "widgets/breakpoint_button.h"
