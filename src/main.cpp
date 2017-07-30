@@ -273,11 +273,6 @@ void doWin_Debugger(App* app)
 			const uint32_t numWords = app->m_RAM->m_Size / 4; // TODO: Disassemble only the .text section.
 			const uint32_t pc = cpuGetPC(app->m_CPU);
 
-			// TODO: Check if it's possible to replicate OllyDbg's disasm window (3-column layout, addr/instr/disasm).
-			// E.g. https://isc.sans.edu/diaryimages/0749464396deecb99c853d2cbead5ebb
-			// Unfortunately, it seems that ImGui's column API doesn't work correctly in this case (i.e. cannot change
-			// column widths if a selectable is spans the whole row, scrolling with SetScrollHere() doesn't seem to work
-			// etc.)
 			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
 			if (ImGui::BeginChild("##disasm", ImVec2(-1, -1), true)) {
 				const float winHeight = ImGui::GetWindowHeight();
@@ -289,13 +284,13 @@ void doWin_Debugger(App* app)
 				uint32_t minAddr = scrollAddr;
 				uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
 				if (app->m_ScrollToPC && (pc <= minAddr || pc >= maxAddr)) {
-					if (pc < minAddr) {
-						minAddr = pc > 4 ? pc - 4 : 0;
+//					if (pc < minAddr) {
+						minAddr = pc > 8 ? pc - 8 : 0;
 						maxAddr = bx::uint32_min(minAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
-					} else {
-						maxAddr = bx::uint32_min(pc + 4, app->m_RAM->m_Size - 4);
-						minAddr = maxAddr > numLinesVisible * 4 ? maxAddr - numLinesVisible * 4 : 0;
-					}
+//					} else {
+//						maxAddr = bx::uint32_min(pc + 8, app->m_RAM->m_Size - 4);
+//						minAddr = maxAddr > numLinesVisible * 4 ? maxAddr - numLinesVisible * 4 : 0;
+//					}
 
 					newScrollY = (minAddr / 4) * lineHeight;
 				} else {
@@ -308,13 +303,35 @@ void doWin_Debugger(App* app)
 					app->m_ScrollToPC = false;
 				}
 
-				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
-					uint32_t ir = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
-					char disasm[256];
-					riscv::disasmInstruction(ir, addr, disasm, 256);
-
-					ImGui::Selectable(disasm, addr == pc);
+				ImGui::Columns(3, nullptr, true);
+				static bool firstTime = true;
+				if (firstTime) {
+					ImGui::SetColumnOffset(0, 0.0f);
+					ImGui::SetColumnOffset(1, 70.0f);
+					ImGui::SetColumnOffset(2, 140.0f);
+					firstTime = false;
 				}
+
+				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
+					uint32_t instr = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
+
+					char disasm[256];
+					riscv::disasmInstruction(instr, addr, disasm, 256);
+
+					char addrStr[32];
+					bx::snprintf(addrStr, 32, "%08X", addr);
+					ImGui::Selectable(addrStr, addr == pc, ImGuiSelectableFlags_SpanAllColumns);
+					ImGui::SetItemAllowOverlap();
+					ImGui::NextColumn();
+
+					ImGui::Text("%08X", instr);
+					ImGui::NextColumn();
+
+					ImGui::Text(disasm);
+					ImGui::NextColumn();
+				}
+
+				ImGui::Columns(1);
 
 				ImGui::EndChild();
 			}
