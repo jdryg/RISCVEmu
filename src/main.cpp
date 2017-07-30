@@ -273,8 +273,9 @@ void doWin_Debugger(App* app)
 			const uint32_t numWords = app->m_RAM->m_Size / 4; // TODO: Disassemble only the .text section.
 			const uint32_t pc = cpuGetPC(app->m_CPU);
 
+			static float infoRegionHeight = 150.0f;
 			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
-			if (ImGui::BeginChild("##disasm", ImVec2(-1, -1), true)) {
+			if (ImGui::BeginChild("##disasm", ImVec2(-1, -infoRegionHeight), true)) {
 				const float winHeight = ImGui::GetWindowHeight();
 				const uint32_t numLinesVisible = (uint32_t)bx::ffloor(winHeight / lineHeight);
 
@@ -332,6 +333,35 @@ void doWin_Debugger(App* app)
 				}
 
 				ImGui::Columns(1);
+
+				ImGui::EndChild();
+			}
+
+			// Splitter
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+
+			ImGui::InvisibleButton("hsplitter", ImVec2(-1, 8.0f));
+			if (ImGui::IsItemActive()) {
+				infoRegionHeight -= ImGui::GetIO().MouseDelta.y;
+
+				const float totalHeight = ImGui::GetWindowHeight();
+				if (infoRegionHeight > totalHeight - 150.0f) {
+					infoRegionHeight = totalHeight - 150.0f;
+				} else if (infoRegionHeight < 50.0f) {
+					infoRegionHeight = 50.0f;
+				}
+			}
+
+			ImGui::PopStyleVar();
+
+			// Instruction operands
+			if (ImGui::BeginChild("##instrOperands", ImVec2(-1, -1), true)) {
+				char str[1024];
+
+				uint32_t nextInstr = *(uint32_t*)memVirtualToPhysical(app->m_RAM, pc);
+				riscv::disasmGetInstrOperandValues(app->m_CPU, app->m_RAM, nextInstr, pc, str, 1024);
+
+				ImGui::TextWrapped(str);
 
 				ImGui::EndChild();
 			}

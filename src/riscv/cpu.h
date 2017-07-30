@@ -189,6 +189,7 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem);
 
 // disasm.cpp
 void disasmInstruction(uint32_t instr, uint32_t addr, char* buf, uint32_t len);
+void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t instr, uint32_t addr, char* str, uint32_t len);
 }
 
 #endif

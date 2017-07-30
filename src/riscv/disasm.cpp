@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "../memory.h"
 #include <bx/string.h>
 
 namespace riscv
@@ -215,6 +216,232 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 		break;
 	default:
 //		RISCV_CHECK(false, "Invalid opcode %02Xh", opcode);
+		break;
+	}
+}
+
+void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t addr, char* buf, uint32_t len)
+{
+	*buf = '\0';
+
+	Instruction instr;
+	instr.m_Word = ir;
+
+	// Opcode is common to all instruction types.
+	const uint32_t opcode = instr.R.opcode;
+	if ((opcode & 3) != 3) {
+		bx::snprintf(buf, len, "Invalid instruction (opcode[0:1] = %u)", opcode & 3);
+		return;
+	}
+
+	switch (opcode) {
+	case Opcode::Load:
+		switch (instr.I.funct3) {
+		case 0: // LB
+		case 4: // LBU
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t memAddr = rs1v + immI(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], rs1v,
+				memAddr, *memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		case 1: // LH
+		case 5: // LHU
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t memAddr = rs1v + immI(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], rs1v,
+				memAddr, *(uint16_t*)memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		case 2: // LW
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t memAddr = rs1v + immI(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], rs1v,
+				memAddr, *(uint32_t*)memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		default:
+			break;
+		}
+		break;
+	case Opcode::MiscMem:
+		break;
+	case Opcode::OpImm:
+		switch (instr.I.funct3) {
+		case ALUOp::AddSub:
+			if (instr.I.rs1 == 0) {
+				bx::snprintf(buf, len, "%s = %08Xh", s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd));
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh", 
+					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+			}
+			break;
+		case ALUOp::ShiftLeft:
+		case ALUOp::ShiftRight:
+		case ALUOp::Xor:
+		case ALUOp::Or:
+		case ALUOp::And:
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+			break;
+		case ALUOp::SLT:
+			// Show set/not set
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+			break;
+		case ALUOp::SLTU:
+			// Show set/not set
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+			break;
+		}
+		break;
+	case Opcode::AUIPC:
+		bx::snprintf(buf, len, "%s = %08Xh\npc = %08Xh",
+			s_RegABIName[instr.U.rd], cpuGetRegister(cpu, instr.U.rd),
+			addr);
+		break;
+	case Opcode::Store:
+		switch (instr.S.funct3) {
+		case 0: // SB
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t memAddr = rs1v + immS(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
+				s_RegABIName[instr.S.rs1], rs1v,
+				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+				memAddr, *memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		case 1: // SH
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t memAddr = rs1v + immS(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
+				s_RegABIName[instr.S.rs1], rs1v,
+				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+				memAddr, *(uint16_t*)memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		case 2: // SW
+		{
+			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t memAddr = rs1v + immS(instr);
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
+				s_RegABIName[instr.S.rs1], rs1v,
+				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+				memAddr, *(uint32_t*)memVirtualToPhysical(mem, memAddr));
+		}
+		break;
+		default:
+			break;
+		}
+		break;
+	case Opcode::Op:
+		switch (instr.R.funct3) {
+		case ALUOp::AddSub:
+		case ALUOp::ShiftLeft:
+		case ALUOp::SLT:
+		case ALUOp::SLTU:
+		case ALUOp::Xor:
+		case ALUOp::ShiftRight:
+		case ALUOp::Or:
+		case ALUOp::And:
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n%s = %08Xh",
+				s_RegABIName[instr.R.rd], cpuGetRegister(cpu, instr.R.rd),
+				s_RegABIName[instr.R.rs1], cpuGetRegister(cpu, instr.R.rs1),
+				s_RegABIName[instr.R.rs2], cpuGetRegister(cpu, instr.R.rs2));
+			break;
+		}
+		break;
+	case Opcode::LUI:
+		bx::snprintf(buf, len, "%s = %08Xh", 
+			s_RegABIName[instr.U.rd], cpuGetRegister(cpu, instr.U.rd));
+		break;
+	case Opcode::Branch:
+	{
+		uint32_t rs1v = cpuGetRegister(cpu, instr.B.rs1);
+		uint32_t rs2v = cpuGetRegister(cpu, instr.B.rs2);
+		uint32_t targetAddr = addr + immB(instr);
+
+		bool jump = false;
+		switch (instr.B.funct3) {
+		case BranchOp::Equal:                jump = rs1v == rs2v;                   break;
+		case BranchOp::NotEqual:             jump = rs1v != rs2v;                   break;
+		case BranchOp::LessThan:             jump = (int32_t)rs1v < (int32_t)rs2v;  break;
+		case BranchOp::GreaterEqual:         jump = (int32_t)rs1v >= (int32_t)rs2v; break;
+		case BranchOp::LessThanUnsigned:     jump = rs1v < rs2v;                    break;
+		case BranchOp::GreaterEqualUnsigned: jump = rs1v >= rs2v;                   break;
+		default: break; 
+		}
+
+		bx::snprintf(buf, len, "Branch is %staken\nTarget = %08Xh\n%s = %08Xh\n%s = %08Xh\n",
+			jump ? "" : "NOT ",
+			targetAddr,
+			s_RegABIName[instr.B.rs1], rs1v,
+			s_RegABIName[instr.B.rs2], rs2v);
+	}
+	break;
+	case Opcode::JALR:
+	{
+		uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+		uint32_t targetAddr = (rs1v + immI(instr)) & 0xFFFFFFFE;
+		if (instr.I.rd == 0 && instr.I.rs1 == 1 && instr.I.imm == 0) {
+			bx::snprintf(buf, len, "Return to %08Xh", targetAddr);
+		} else if (instr.I.rd == 0 && instr.I.imm == 0) {
+			bx::snprintf(buf, len, "%s = %08Xh\nTarget = %08Xh",
+				s_RegABIName[instr.I.rs1], rs1v,
+				targetAddr);
+		} else {
+			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\nTarget = %08Xh",
+				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rs1], rs1v, 
+				targetAddr);
+		}
+	}
+	break;
+	case Opcode::JAL:
+	{
+		uint32_t targetAddr = addr + immJ(instr);
+		if (instr.J.rd == 0) {
+			// Unconditional jump or halt
+		} else if (instr.J.rd == 1) {
+			// call
+		} else {
+			bx::snprintf(buf, len, "%s = %08Xh\nTarget = %08Xh", 
+				s_RegABIName[instr.J.rd], cpuGetRegister(cpu, instr.J.rd),
+				targetAddr);
+		}
+	}
+	break;
+	case Opcode::System:
+		switch (instr.I.imm) {
+		case 0: // ECALL
+		{
+			uint32_t a0v = cpuGetRegister(cpu, 10);
+			bx::snprintf(buf, len, "syscall %04Xh (decimal %u)", a0v, a0v);
+			break;
+		}
+		case 1: // EBREAK
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
 		break;
 	}
 }
