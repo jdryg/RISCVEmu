@@ -202,6 +202,7 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 		}
 		break;
 	case Opcode::System:
+		// TODO: Implement all the other system instructions.
 		switch (instr.I.imm) {
 		case 0: // ECALL
 			bx::snprintf(buf, len, "ecall");
@@ -428,10 +429,11 @@ void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t ad
 	}
 	break;
 	case Opcode::System:
+		// TODO: Implement all the other system instructions.
 		switch (instr.I.imm) {
 		case 0: // ECALL
 		{
-			uint32_t a0v = cpuGetRegister(cpu, 10);
+			uint32_t a0v = cpuGetRegister(cpu, IReg::a0);
 			bx::snprintf(buf, len, "syscall %04Xh (decimal %u)", a0v, a0v);
 			break;
 		}

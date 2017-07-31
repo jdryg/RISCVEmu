@@ -71,11 +71,66 @@ struct BranchOp
 	};
 };
 
+struct CSR
+{
+	enum Enum
+	{
+		cycle = 0xC00,    // RV32I, RO
+		time = 0xC01,     // RV32I, RO
+		instret = 0xC02,  // RV32I, RO
+		cycleh = 0xC80,   // RV32I, RO
+		timeh = 0xC81,    // RV32I, RO
+		instreth = 0xC82, // RV32I, RO
+	};
+};
+
+struct IReg
+{
+	enum Enum
+	{
+		zero = 0,
+		ra = 1,
+		sp = 2,
+		gp = 3,
+		tp = 4,
+		t0 = 5,
+		t1 = 6,
+		t2 = 7,
+		s0 = 8,
+		s1 = 9,
+		a0 = 10,
+		a1 = 11,
+		a2 = 12,
+		a3 = 13,
+		a4 = 14,
+		a5 = 15,
+		a6 = 16,
+		a7 = 17,
+		s2 = 18,
+		s3 = 19,
+		s4 = 20, 
+		s5 = 21, 
+		s6 = 22, 
+		s7 = 23,
+		s8 = 24,
+		s9 = 25,
+		s10 = 26,
+		s11 = 27,
+		t3 = 28,
+		t4 = 29,
+		t5 = 30, 
+		t6 = 31
+	};
+};
+
 struct CPUState
 {
 	// User-visible integer state
 	word_t m_IRegs[32];
 	word_t m_PC;
+
+	// Control and Status Registers (CSRs)
+	word_t m_CSR[4096];
 };
 
 struct CPU
@@ -182,6 +237,8 @@ word_t cpuGetPC(CPU* cpu);
 void cpuSetPC(CPU* cpu, word_t val);
 word_t cpuGetRegister(CPU* cpu, uint32_t reg);
 void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val);
+word_t cpuGetCSR(CPU* cpu, uint32_t csr);
+void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);

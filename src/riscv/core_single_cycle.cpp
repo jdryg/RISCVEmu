@@ -11,46 +11,52 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 	cpu->m_NextState.m_IRegs[0] = 0;
 	cpu->m_NextState.m_IRegs[2] = sp;
 	cpu->m_NextState.m_PC = pc;
+	cpu->m_NextState.m_CSR[CSR::cycle] = 0;
+	cpu->m_NextState.m_CSR[CSR::cycleh] = 0;
+	cpu->m_NextState.m_CSR[CSR::time] = 0;
+	cpu->m_NextState.m_CSR[CSR::timeh] = 0;
+	cpu->m_NextState.m_CSR[CSR::instret] = 0;
+	cpu->m_NextState.m_CSR[CSR::instreth] = 0;
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
-void cpuExecuteSystemCall(CPU* cpu, Memory* mem)
+void cpuExecuteSystemCall(CPU* cpu)
 {
-	uint32_t sysCallID = cpuGetRegister(cpu, 17);
+	uint32_t sysCallID = cpuGetRegister(cpu, IReg::a7);
 	switch (sysCallID) {
 	case SYS_fstat:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, 10), memVirtualToPhysical(mem, cpuGetRegister(cpu, 11))));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1)));
 		break;
 	case SYS_brk:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_brk(cpuGetRegister(cpu, 10)));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_brk(cpuGetRegister(cpu, IReg::a0)));
 		break;
 	case SYS_close:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_close((int)cpuGetRegister(cpu, 10)));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_close((int)cpuGetRegister(cpu, IReg::a0)));
 		break;
 	case SYS_lseek:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, 10), (size_t)cpuGetRegister(cpu, 11), (int)cpuGetRegister(cpu, 12)));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, IReg::a0), (size_t)cpuGetRegister(cpu, IReg::a1), (int)cpuGetRegister(cpu, IReg::a2)));
 		break;
 	case SYS_read:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_read((int)cpuGetRegister(cpu, 10), (char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_read((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
 		break;
 	case SYS_write:
-		cpuSetRegister(cpu, 10, (uint32_t)sys_write((int)cpuGetRegister(cpu, 10), (const char*)memVirtualToPhysical(mem, cpuGetRegister(cpu, 11)), (size_t)cpuGetRegister(cpu, 12)));
+		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_write((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
 		break;
 	case SYS_exit:
-		sys_exit((int)cpuGetRegister(cpu, 10));
+		sys_exit((int)cpuGetRegister(cpu, IReg::a0));
 		break;
 	default:
 		RISCV_TRACE("0x%08X: ECALL a0=%08Xh, a1=%08Xh, a2=%08Xh, a3=%08Xh, a4=%08Xh, a5=%08Xh, a6=%08Xh, a7=%08Xh\n"
 			, cpuGetPC(cpu)
-			, cpuGetRegister(cpu, 10)
-			, cpuGetRegister(cpu, 11)
-			, cpuGetRegister(cpu, 12)
-			, cpuGetRegister(cpu, 13)
-			, cpuGetRegister(cpu, 14)
-			, cpuGetRegister(cpu, 15)
-			, cpuGetRegister(cpu, 16)
-			, cpuGetRegister(cpu, 17));
-		RISCV_CHECK(false, "Unknown syscall %08Xh", cpuGetRegister(cpu, 17));
+			, cpuGetRegister(cpu, IReg::a0)
+			, cpuGetRegister(cpu, IReg::a1)
+			, cpuGetRegister(cpu, IReg::a2)
+			, cpuGetRegister(cpu, IReg::a3)
+			, cpuGetRegister(cpu, IReg::a4)
+			, cpuGetRegister(cpu, IReg::a5)
+			, cpuGetRegister(cpu, IReg::a6)
+			, cpuGetRegister(cpu, IReg::a7));
+		RISCV_CHECK(false, "Unknown syscall %08Xh", cpuGetRegister(cpu, IReg::a7));
 		break;
 	}
 }
@@ -239,18 +245,60 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 		cpuSetPC(cpu, cpuGetPC(cpu) + immJ(instr));
 		break;
 	case Opcode::System:
-		RISCV_CHECK(instr.I.funct3 == 0, "Invalid funct3 field in SYSTEM instruction. Expecting 00h, found %02Xh", instr.I.funct3);
-		RISCV_CHECK(instr.I.rd == 0, "Invalid rd field in SYSTEM instruction. Expecting 00h, found %02Xh", instr.I.rd);
-		RISCV_CHECK(instr.I.rs1 == 0, "Invalid rs1 field in SYSTEM instruction. Expecting 00h, found %02Xh", instr.I.rs1);
-		switch (instr.I.imm) {
-		case 0: // ECALL
-			cpuExecuteSystemCall(cpu, mem);
+		switch (instr.I.funct3) {
+		case 0: // ECALL, EBREAK
+			RISCV_CHECK(instr.I.rd == 0, "Invalid rd field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rd);
+			RISCV_CHECK(instr.I.rs1 == 0, "Invalid rs1 field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rs1);
+			switch (instr.I.imm) {
+			case 0: // ECALL
+				cpuExecuteSystemCall(cpu);
+				break;
+			case 1: // EBREAK
+				RISCV_CHECK(false, "EBREAK not implemented yet");
+				break;
+			default:
+				RISCV_CHECK(false, "Invalid SYSTEM instruction (imm = %08Xh)", instr.I.imm);
+			}
 			break;
-		case 1: // EBREAK
-			RISCV_CHECK(false, "EBREAK not implemented yet");
+		case 1: // CSRRW
+			if (instr.I.rd != 0) {
+				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			}
+			cpuSetCSR(cpu, instr.I.imm, cpuGetRegister(cpu, instr.I.rs1));
+			break;
+		case 2: // CSRRS
+			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			if (instr.I.rs1 != 0) {
+				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | cpuGetRegister(cpu, instr.I.rs1));
+			}
+			break;
+		case 3: // CSRRC
+			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			if (instr.I.rs1 != 0) {
+				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~cpuGetRegister(cpu, instr.I.rs1)));
+			}
+			break;
+		case 5: // CSRRWI
+			if (instr.I.rd != 0) {
+				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			}
+			cpuSetCSR(cpu, instr.I.imm, instr.I.rs1);
+			break;
+		case 6: // CSRRSI
+			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			if (instr.I.rs1 != 0) {
+				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | instr.I.rs1);
+			}
+			break;
+		case 7: // CSRRCI
+			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+			if (instr.I.rs1 != 0) {
+				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~instr.I.rs1));
+			}
 			break;
 		default:
-			RISCV_CHECK(false, "Invalid SYSTEM instruction (imm = %08Xh)", instr.I.imm);
+			// Invalid instruction
+			break;
 		}
 		break;
 	default:

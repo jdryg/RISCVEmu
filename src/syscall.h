@@ -14,10 +14,10 @@ struct Memory;
 #define SYS_exit  0x5D
 #define SYS_brk   0xD6
 
-int sys_fstat(int fd, void* st);
+int sys_fstat(int fd, uint32_t stAddr);
 size_t sys_lseek(int fd, size_t ptr, int dir);
-size_t sys_read(int fd, char* buf, size_t n);
-size_t sys_write(int fd, const char* buf, size_t n);
+size_t sys_read(int fd, uint32_t bufAddr, size_t n);
+size_t sys_write(int fd, uint32_t bufAddr, size_t n);
 int sys_close(int fd);
 size_t sys_brk(size_t pos);
 void sys_exit(int code);

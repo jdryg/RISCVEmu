@@ -18,17 +18,19 @@ static Memory* g_SysMemory = nullptr;
 static uint32_t g_SysInitialBreak = 0;
 static uint32_t g_SysCurrentBreak = 0;
 
-int sys_fstat(int fd, void* st)
+int sys_fstat(int fd, uint32_t stAddr)
 {
 #if TRACE_SYSCALLS
-	RISCV_TRACE("sys_fstat(%d, %08Xh)", fd, (uint32_t)st);
+	RISCV_TRACE("sys_fstat(%d, %08Xh)", fd, stAddr);
 #endif
+
+	uint8_t* st = memVirtualToPhysical(g_SysMemory, stAddr);
 
 	int r = -EBADF;
 	if (fd >= 0 && fd <= 2) {
 		r = _fstat32(fd, (struct _stat32*)st);
 	} else {
-		assert(false); // Unknown file descriptor
+		RISCV_CHECK(false, "Unknown file descriptor %d", fd);
 	}
 
 	return r;
@@ -45,41 +47,45 @@ size_t sys_lseek(int fd, size_t ptr, int dir)
 	if (fd >= 0 && fd <= 2) {
 		r = _lseek(fd, (long)ptr, dir);
 	} else {
-		assert(false);
+		RISCV_CHECK(false, "Unknown file descriptor %d", fd);
 	}
 
 	return r;
 }
 
-size_t sys_read(int fd, char* buf, size_t n)
+size_t sys_read(int fd, uint32_t bufAddr, size_t n)
 {
 #if TRACE_SYSCALLS
-	RISCV_TRACE("sys_read(%d, %08Xh, %u)", fd, (uint32_t)buf, n);
+	RISCV_TRACE("sys_read(%d, %08Xh, %u)", fd, bufAddr, n);
 #endif
+
+	uint8_t* buf = memVirtualToPhysical(g_SysMemory, bufAddr);
 
 	size_t r = (size_t)(-EBADF);
 
 	if (fd >= 0 && fd <= 2) {
 		r = _read(fd, buf, (uint32_t)n);
 	} else {
-		assert(false);
+		RISCV_CHECK(false, "Unknown file descriptor %d", fd);
 	}
 
 	return r;
 }
 
-size_t sys_write(int fd, const char* buf, size_t n)
+size_t sys_write(int fd, uint32_t bufAddr, size_t n)
 {
 #if TRACE_SYSCALLS
-	RISCV_TRACE("sys_write(%d, %08Xh, %u)", fd, (uint32_t)buf, n);
+	RISCV_TRACE("sys_write(%d, %08Xh, %u)", fd, bufAddr, n);
 #endif
+
+	const uint8_t* buf = memVirtualToPhysical(g_SysMemory, bufAddr);
 
 	size_t r = (size_t)(-EBADF);
 
 	if (fd >= 0 && fd <= 2) {
 		r = _write(fd, buf, (uint32_t)n);
 	} else {
-		assert(false); // Unknown file descriptor.
+		RISCV_CHECK(false, "Unknown file descriptor %d", fd);
 	}
 
 	return r;
@@ -95,6 +101,8 @@ int sys_close(int fd)
 	if (fd >= 0 && fd <= 2) {
 //		r = _close(fd);
 		r = 0;
+	} else {
+		RISCV_CHECK(false, "Unknown file descriptor %d", fd);
 	}
 
 	return r;

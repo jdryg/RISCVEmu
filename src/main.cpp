@@ -413,71 +413,37 @@ void doWin_Registers(App* app)
 			ImGui::Text("Emulator is not running");
 		} else {
 			ImGui::TextWrapped("ra: %08Xh\tsp: %08Xh\tgp: %08Xh\ttp: %08Xh\tt0: %08Xh\tt1: %08Xh\tt2: %08Xh\ts0: %08Xh\ts1: %08Xh\ta0: %08Xh\ta1: %08Xh\ta2: %08Xh\ta3: %08Xh\ta4: %08Xh\ta5: %08Xh\ta6: %08Xh\ta7: %08Xh\ts2: %08Xh\ts3: %08Xh\ts4: %08Xh\ts5: %08Xh\ts6: %08Xh\ts7: %08Xh\ts8: %08Xh\ts9: %08Xh\ts10: %08Xh\ts11: %08Xh\tt3: %08Xh\tt4: %08Xh\tt5: %08Xh\tt6: %08Xh"
-				, riscv::cpuGetRegister(app->m_CPU, 1)
-				, riscv::cpuGetRegister(app->m_CPU, 2)
-				, riscv::cpuGetRegister(app->m_CPU, 3)
-				, riscv::cpuGetRegister(app->m_CPU, 4)
-				, riscv::cpuGetRegister(app->m_CPU, 5)
-				, riscv::cpuGetRegister(app->m_CPU, 6)
-				, riscv::cpuGetRegister(app->m_CPU, 7)
-				, riscv::cpuGetRegister(app->m_CPU, 8)
-				, riscv::cpuGetRegister(app->m_CPU, 9)
-				, riscv::cpuGetRegister(app->m_CPU, 10)
-				, riscv::cpuGetRegister(app->m_CPU, 11)
-				, riscv::cpuGetRegister(app->m_CPU, 12)
-				, riscv::cpuGetRegister(app->m_CPU, 13)
-				, riscv::cpuGetRegister(app->m_CPU, 14)
-				, riscv::cpuGetRegister(app->m_CPU, 15)
-				, riscv::cpuGetRegister(app->m_CPU, 16)
-				, riscv::cpuGetRegister(app->m_CPU, 17)
-				, riscv::cpuGetRegister(app->m_CPU, 18)
-				, riscv::cpuGetRegister(app->m_CPU, 19)
-				, riscv::cpuGetRegister(app->m_CPU, 20)
-				, riscv::cpuGetRegister(app->m_CPU, 21)
-				, riscv::cpuGetRegister(app->m_CPU, 22)
-				, riscv::cpuGetRegister(app->m_CPU, 23)
-				, riscv::cpuGetRegister(app->m_CPU, 24)
-				, riscv::cpuGetRegister(app->m_CPU, 25)
-				, riscv::cpuGetRegister(app->m_CPU, 26)
-				, riscv::cpuGetRegister(app->m_CPU, 27)
-				, riscv::cpuGetRegister(app->m_CPU, 28)
-				, riscv::cpuGetRegister(app->m_CPU, 29)
-				, riscv::cpuGetRegister(app->m_CPU, 30)
-				, riscv::cpuGetRegister(app->m_CPU, 31));
-			//if (ImGui::CollapsingHeader("Registers")) {
-			//	ImGui::Text("zero: 00000000h");
-			//	ImGui::Text("ra: %08Xh", riscv::cpuGetRegister(app->m_CPU, 1));
-			//	ImGui::Text("sp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 2));
-			//	ImGui::Text("gp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 3));
-			//	ImGui::Text("tp: %08Xh", riscv::cpuGetRegister(app->m_CPU, 4));
-			//	ImGui::Text("t0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 5));
-			//	ImGui::Text("t1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 6));
-			//	ImGui::Text("t2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 7));
-			//	ImGui::Text("s0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 8));
-			//	ImGui::Text("s1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 9));
-			//	ImGui::Text("a0: %08Xh", riscv::cpuGetRegister(app->m_CPU, 10));
-			//	ImGui::Text("a1: %08Xh", riscv::cpuGetRegister(app->m_CPU, 11));
-			//	ImGui::Text("a2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 12));
-			//	ImGui::Text("a3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 13));
-			//	ImGui::Text("a4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 14));
-			//	ImGui::Text("a5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 15));
-			//	ImGui::Text("a6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 16));
-			//	ImGui::Text("a7: %08Xh", riscv::cpuGetRegister(app->m_CPU, 17));
-			//	ImGui::Text("s2: %08Xh", riscv::cpuGetRegister(app->m_CPU, 18));
-			//	ImGui::Text("s3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 19));
-			//	ImGui::Text("s4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 20));
-			//	ImGui::Text("s5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 21));
-			//	ImGui::Text("s6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 22));
-			//	ImGui::Text("s7: %08Xh", riscv::cpuGetRegister(app->m_CPU, 23));
-			//	ImGui::Text("s8: %08Xh", riscv::cpuGetRegister(app->m_CPU, 24));
-			//	ImGui::Text("s9: %08Xh", riscv::cpuGetRegister(app->m_CPU, 25));
-			//	ImGui::Text("s10: %08Xh", riscv::cpuGetRegister(app->m_CPU, 26));
-			//	ImGui::Text("s11: %08Xh", riscv::cpuGetRegister(app->m_CPU, 27));
-			//	ImGui::Text("t3: %08Xh", riscv::cpuGetRegister(app->m_CPU, 28));
-			//	ImGui::Text("t4: %08Xh", riscv::cpuGetRegister(app->m_CPU, 29));
-			//	ImGui::Text("t5: %08Xh", riscv::cpuGetRegister(app->m_CPU, 30));
-			//	ImGui::Text("t6: %08Xh", riscv::cpuGetRegister(app->m_CPU, 31));
-			//}
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::ra)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::sp)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::gp)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::tp)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t0)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t1)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t2)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s0)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s1)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a0)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a1)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a2)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a3)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a4)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a5)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a6)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a7)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s2)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s3)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s4)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s5)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s6)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s7)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s8)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s9)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s10)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s11)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t3)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t4)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t5)
+				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t6));
 		}
 	}
 	ImGui::End();
