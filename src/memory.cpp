@@ -26,65 +26,50 @@ void memDestroy(Memory* mem)
 	free(mem);
 }
 
-bool _memCheckAccess(const Memory* mem, uint8_t* physicalPtr, uint32_t flags)
+bool _memCheckAccess(const Memory* mem, uint8_t* physicalPtr, uint32_t flags, uint32_t privLevel)
 {
+	if (privLevel == 3) {
+		// Maximum privilege level has RWX access to the whole memory range.
+		return true;
+	}
+
 	const uint32_t nr = mem->m_NumRegions;
 	for (uint32_t i = 0; i < nr; ++i) {
 		const Region* r = &mem->m_Regions[i];
 		if (physicalPtr >= r->m_Start && physicalPtr <= r->m_End) {
-			return (r->m_Flags & flags) == flags;
+			return (privLevel >= r->m_MinPrivLevel) && (r->m_Flags & flags) == flags;
 		}
 	}
 
 	return false;
 }
 
-uint32_t memRead32(Memory* mem, uint32_t addr, uint32_t flags)
+uint32_t memRead32(Memory* mem, uint32_t addr, uint32_t byteMask, uint32_t privLevel, bool isInstruction)
 {
 	RISCV_CHECK(addr + 3 < mem->m_Size, "memRead32(%08Xh): Invalid address", addr);
+	
 	uint8_t* data = memVirtualToPhysical(mem, addr);
-	if (!_memCheckAccess(mem, data, flags | RegionFlags::Read)) {
+	if (!_memCheckAccess(mem, data, RegionFlags::Read | (isInstruction ? RegionFlags::Execute : 0), privLevel)) {
 		RISCV_CHECK(false, "Access violation reading memory at address %08Xh", addr);
 		return 0x55555555;
 	}
 
-	return *(uint32_t*)data;
+	uint32_t val = *(uint32_t*)data;
+	return val & byteMask;
 }
 
-void memWrite32(Memory* mem, uint32_t addr, uint32_t val)
+void memWrite32(Memory* mem, uint32_t addr, uint32_t val, uint32_t byteMask, uint32_t privLevel)
 {
 	RISCV_CHECK(addr + 3 < mem->m_Size, "memWrite32(%08Xh): Invalid address", addr);
+	
 	uint8_t* data = memVirtualToPhysical(mem, addr);
-	if (!_memCheckAccess(mem, data, RegionFlags::Write)) {
+	if (!_memCheckAccess(mem, data, RegionFlags::Write, privLevel)) {
 		RISCV_CHECK(false, "Access violation writing memory at address %08Xh", addr);
 		return;
 	}
 
-	*(uint32_t*)data = val;
-}
-
-void memWrite16(Memory* mem, uint32_t addr, uint16_t val)
-{
-	RISCV_CHECK(addr + 1 < mem->m_Size, "memWrite16(%08Xh): Invalid address", addr);
-	uint8_t* data = memVirtualToPhysical(mem, addr);
-	if (!_memCheckAccess(mem, data, RegionFlags::Write)) {
-		RISCV_CHECK(false, "Access violation writing memory at address %08Xh", addr);
-		return;
-	}
-
-	*(uint16_t*)data = val;
-}
-
-void memWrite8(Memory* mem, uint32_t addr, uint8_t val)
-{
-	RISCV_CHECK(addr < mem->m_Size, "memWrite8(%08Xh): Invalid address", addr);
-	uint8_t* data = memVirtualToPhysical(mem, addr);
-	if (!_memCheckAccess(mem, data, RegionFlags::Write)) {
-		RISCV_CHECK(false, "Access violation writing memory at address %08Xh", addr);
-		return;
-	}
-
-	*data = val;
+	uint32_t oldVal = *(uint32_t*)data;
+	*(uint32_t*)data = (oldVal & (~byteMask)) | (val & byteMask);
 }
 
 uint8_t* memVirtualToPhysical(Memory* mem, uint32_t addr)
@@ -93,7 +78,7 @@ uint8_t* memVirtualToPhysical(Memory* mem, uint32_t addr)
 	return mem->m_Data + addr;
 }
 
-bool memAddRegion(Memory* mem, uint32_t startAddress, uint32_t size, uint32_t flags)
+bool memAddRegion(Memory* mem, uint32_t startAddress, uint32_t size, uint32_t flags, uint32_t minPrivLevel)
 {
 	// Check if this region overlaps another region.
 	uint8_t* startPtr = memVirtualToPhysical(mem, startAddress);
@@ -123,11 +108,12 @@ bool memAddRegion(Memory* mem, uint32_t startAddress, uint32_t size, uint32_t fl
 	newRegion->m_Start = startPtr;
 	newRegion->m_End = endPtr;
 	newRegion->m_Flags = flags;
+	newRegion->m_MinPrivLevel = minPrivLevel;
 
 	return true;
 }
 
-bool memExpandOrAddRegion(Memory* mem, uint32_t startAddress, uint32_t deltaSize, uint32_t flags)
+bool memExpandOrAddRegion(Memory* mem, uint32_t startAddress, uint32_t deltaSize, uint32_t flags, uint32_t minPrivLevel)
 {
 	// Find the region with the specified start address.
 	uint8_t* startPtr = memVirtualToPhysical(mem, startAddress);
@@ -146,5 +132,5 @@ bool memExpandOrAddRegion(Memory* mem, uint32_t startAddress, uint32_t deltaSize
 	}
 
 	// Region not found. Add it...
-	return memAddRegion(mem, startAddress, deltaSize, flags);
+	return memAddRegion(mem, startAddress, deltaSize, flags, minPrivLevel);
 }

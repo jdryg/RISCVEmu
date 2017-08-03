@@ -124,7 +124,7 @@ size_t sys_brk(size_t addr)
 		uint8_t* data = memVirtualToPhysical(g_SysMemory, g_SysCurrentBreak);
 		bx::memSet(data, 0, (uint32_t)addr - g_SysCurrentBreak);
 
-		memExpandOrAddRegion(g_SysMemory, g_SysInitialBreak, (uint32_t)addr - g_SysCurrentBreak, RegionFlags::Read | RegionFlags::Write);
+		memExpandOrAddRegion(g_SysMemory, g_SysInitialBreak, (uint32_t)addr - g_SysCurrentBreak, RegionFlags::Read | RegionFlags::Write, 0);
 	}
 
 	g_SysCurrentBreak = (uint32_t)addr;

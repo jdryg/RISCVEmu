@@ -3,6 +3,43 @@
 
 namespace riscv
 {
+#define CSR_RW_MASK 0xC00
+#define CSR_RW_SHIFT 10
+
+#define CSR_PRIV_MASK 0x300
+#define CSR_PRIV_SHIFT 8
+
+#define CSR_FLAG_RO 0x03
+
+// Volume II: RISC-V Privileged Architectures V1.10
+#define MSTATUS_MASK_SD     0x80000000 // If both XS and FS are hardwired to zero, then SD is also always zero.
+#define MSTATUS_MASK_TSR    0x00400000 // TSR (Trap SRET) is hardwired to 0 when S-mode is not supported
+#define MSTATUS_MASK_TW     0x00200000 // TW (Timeout Wait) is hardwired to 0 when S-mode is not supported
+#define MSTATUS_MASK_TVM    0x00100000 // TVM (Trap Virtual Memory) is hardwired to 0 when S-mode is not supported
+#define MSTATUS_MASK_MXR    0x00080000 // MXR (Make eXecutable Readable) is hardwired to 0 when S-mode is not supported
+#define MSTATUS_MASK_SUM    0x00040000 // SUM (permit Supervisor User Memory access) is hardwired to 0 when S-mode is not supported
+#define MSTATUS_MASK_MPRV   0x00020000 // MPRV (Modify PRiVilege) See section 3.1.9
+#define MSTATUS_MASK_XS     0x00018000 // In systems without additional user extensions requiring new state, the XS field is hardwired to zero
+#define MSTATUS_MASK_FS     0x00006000 // In systems that do not implement S-mode and do not have a floating-point unit, the FS field is hardwired to zero
+#define MSTATUS_MASK_MPP    0x00001800
+#define MSTATUS_MASK_SPP    0x00000100
+#define MSTATUS_MASK_MPIE   0x00000080
+#define MSTATUS_MASK_SPIE   0x00000020
+#define MSTATUS_MASK_UPIE   0x00000010
+#define MSTATUS_MASK_MIE    0x00000008
+#define MSTATUS_MASK_SIE    0x00000002
+#define MSTATUS_MASK_UIE    0x00000001
+
+inline bool csrIsReadOnly(uint32_t csr)
+{
+	return ((csr & CSR_RW_MASK) >> CSR_RW_SHIFT) == CSR_FLAG_RO;
+}
+
+inline uint32_t csrGetMinPrivLevel(uint32_t csr)
+{
+	return ((csr & CSR_PRIV_MASK) >> CSR_PRIV_SHIFT);
+}
+
 word_t cpuGetPC(CPU* cpu)
 {
 	return cpu->m_State.m_PC;
@@ -27,13 +64,56 @@ void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val)
 
 void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val)
 {
-	RISCV_CHECK(csr <= 0xFFF, "Invalid CSR");
+	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
+
+	if (csrIsReadOnly(csr)) {
+		RISCV_CHECK(false, "Illegal instruction exception: Trying to write to a read-only CSR");
+		return;
+	};
+
+	if (csrGetMinPrivLevel(csr) > cpu->m_State.m_PrivLevel) {
+		RISCV_CHECK(false, "Illegal instruction exception: Trying to access a privileged CSR");
+		return;
+	}
+
 	cpu->m_NextState.m_CSR[csr] = val;
 }
 
 word_t cpuGetCSR(CPU* cpu, uint32_t csr)
 {
-	RISCV_CHECK(csr <= 0xFFF, "Invalid CSR");
+	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
+
+	if (csrGetMinPrivLevel(csr) > cpu->m_State.m_PrivLevel) {
+		RISCV_CHECK(false, "Illegal instruction exception: Trying to access a privileged CSR");
+		return 0;
+	}
+
 	return cpu->m_State.m_CSR[csr];
+}
+
+word_t cpuReadCSR(CPU* cpu, uint32_t csr)
+{
+	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
+	return cpu->m_State.m_CSR[csr];
+}
+
+uint32_t cpuGetPrivLevel(CPU* cpu)
+{
+	return cpu->m_State.m_PrivLevel;
+}
+
+void cpuRaiseException(CPU* cpu, Exception::Enum cause)
+{
+	cpuSetCSR(cpu, CSR::mcause, (word_t)cause);
+	cpuSetCSR(cpu, CSR::mepc, cpuGetPC(cpu));
+	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mtvec));
+	cpu->m_NextState.m_PrivLevel = PrivLevel::Machine;
+}
+
+void cpuReturnFromException(CPU* cpu)
+{
+	RISCV_CHECK(cpu->m_State.m_PrivLevel == PrivLevel::Machine, "Illegal instruction exception");
+	cpu->m_NextState.m_PrivLevel = PrivLevel::User;
+	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mepc));
 }
 }

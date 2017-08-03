@@ -25,6 +25,10 @@
 			bx::debugBreak(); \
 		} \
 	} while(0)
+#else
+#define RISCV_TRACE(_format, ...)
+#define RISCV_WARN(_condition, _format, ...)
+#define RISCV_CHECK(_condition, _format, ...)
 #endif
 
 #include <bx/bx.h>

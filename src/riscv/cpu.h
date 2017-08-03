@@ -2,6 +2,7 @@
 #define RISCV_CPU_H
 
 #include <stdint.h>
+#include "tlb.h"
 
 #ifndef XLEN
 #define XLEN 32
@@ -20,6 +21,11 @@ struct Memory;
 
 namespace riscv
 {
+const uint32_t kPageShift = 12; // 4k
+const uint32_t kPageSize = 1 << kPageShift; // virtual and physical
+const uint32_t kAddressOffsetMask = (1 << kPageShift) - 1;
+const uint32_t kVirtualPageNumberMask = ~kAddressOffsetMask;
+
 struct Opcode
 {
 	enum Enum
@@ -75,12 +81,50 @@ struct CSR
 {
 	enum Enum
 	{
-		cycle = 0xC00,    // RV32I, RO
-		time = 0xC01,     // RV32I, RO
-		instret = 0xC02,  // RV32I, RO
-		cycleh = 0xC80,   // RV32I, RO
-		timeh = 0xC81,    // RV32I, RO
-		instreth = 0xC82, // RV32I, RO
+		// User Counter/Timers
+		cycle = 0xC00,       // URO
+		time = 0xC01,        // URO
+		instret = 0xC02,     // URO
+		cycleh = 0xC80,      // URO
+		timeh = 0xC81,       // URO
+		instreth = 0xC82,    // URO
+
+		// Machine Information Registers
+		mvendorid = 0xF11,   // MRO
+		marchid = 0xF12,     // MRO
+		mimpid = 0xF13,      // MRO
+		mhartid = 0xF14,     // MRO
+
+		// Machine Trap Setup
+		mstatus = 0x300,     // MRW
+		misa = 0x301,        // MRW
+		medeleg = 0x302,     // MRW
+		mideleg = 0x303,     // MRW
+		mie = 0x304,         // MRW
+		mtvec = 0x305,       // MRW
+		mcounteren = 0x306,  // MRW
+
+		// Machine Trap Handling
+		mscratch = 0x340,    // MRW
+		mepc = 0x341,        // MRW
+		mcause = 0x342,      // MRW
+		mtval = 0x343,       // MRW
+		mip = 0x344,         // MRW
+
+		// Machine Protection and Translation
+		// ???
+
+		// Machine Counter/Timers
+		mcycle = 0xB00,      // MRW
+		minstret = 0xB02,    // MRW
+		mcycleh = 0xB80,     // MRW
+		minstreth = 0xB82,    // MRW
+
+		// Supervisor Protection and Translation 
+		// NOTE: Even though the current simulator only supports U + M modes this is the only 
+		// supervisor CSR used because it has a well defined meaning in the specs and can be
+		// used even in machine mode (higher privilege level).
+		satp = 0x180,
 	};
 };
 
@@ -123,6 +167,39 @@ struct IReg
 	};
 };
 
+struct PrivLevel
+{
+	// 2 bits
+	enum Enum : uint32_t
+	{
+		User = 0,
+//		Supervisor = 1, // Unused
+//		Reserved = 2, 
+		Machine = 3
+	};
+};
+
+struct Exception
+{
+	enum Enum : uint32_t
+	{
+		InstructionAddressMisaligned = 0,
+		InstructionAccessFault = 1,
+		IllegalInstruction = 2,
+		Breakpoint = 3,
+		LoadAddressMisaligned = 4,
+		LoadAccessFault = 5,
+		StoreAddressMisaligned = 6,
+		StoreAccessFault = 7,
+		EnvCallFromUser = 8,
+		EnvCallFromSupervisor = 9,
+		EnvCallFromMachine = 11,
+		InstructionPageFault = 12,
+		LoadPageFault = 13,
+		StorePageFault = 14,
+	};
+};
+
 struct CPUState
 {
 	// User-visible integer state
@@ -130,13 +207,16 @@ struct CPUState
 	word_t m_PC;
 
 	// Control and Status Registers (CSRs)
-	word_t m_CSR[4096];
+	word_t m_CSR[4096]; // NOTE: Only a handful of CSRs are defined/used but lets have them all :)
+
+	PrivLevel::Enum m_PrivLevel;
 };
 
 struct CPU
 {
 	CPUState m_State;
 	CPUState m_NextState;
+	TLB m_ITLB;
 };
 
 union Instruction
@@ -202,6 +282,25 @@ union Instruction
 	} J;
 };
 
+union PageTableEntry
+{
+	uint32_t m_Word;
+
+	struct _Fields
+	{
+		uint32_t m_Valid : 1;
+		uint32_t m_Read : 1;
+		uint32_t m_Write : 1;
+		uint32_t m_Execute : 1;
+		uint32_t m_UserModeAccessible : 1;
+		uint32_t m_Global : 1;
+		uint32_t m_Accessed : 1;
+		uint32_t m_Dirty : 1;
+		uint32_t m_RSW : 2;
+		uint32_t m_PhysicalPageNumber : 22;
+	} m_Fields;
+};
+
 inline word_t sext(uint32_t v, uint32_t signBitPos)
 {
 	const uint32_t shiftAmount = 31 - signBitPos;
@@ -238,7 +337,11 @@ void cpuSetPC(CPU* cpu, word_t val);
 word_t cpuGetRegister(CPU* cpu, uint32_t reg);
 void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val);
 word_t cpuGetCSR(CPU* cpu, uint32_t csr);
+word_t cpuReadCSR(CPU* cpu, uint32_t csr); // Same as GetCSR() but without the privilege checks. Used by the page table walker.
 void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val);
+uint32_t cpuGetPrivLevel(CPU* cpu);
+void cpuRaiseException(CPU* cpu, Exception::Enum cause);
+void cpuReturnFromException(CPU* cpu);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);

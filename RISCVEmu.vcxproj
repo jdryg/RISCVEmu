@@ -176,6 +176,7 @@
     <ClCompile Include="src\riscv\core_single_cycle.cpp" />
     <ClCompile Include="src\riscv\cpu.cpp" />
     <ClCompile Include="src\riscv\disasm.cpp" />
+    <ClCompile Include="src\riscv\tlb.cpp" />
     <ClCompile Include="src\syscall.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -228,6 +229,7 @@
     <ClInclude Include="src\nfd\common.h" />
     <ClInclude Include="src\nfd\nfd_common.h" />
     <ClInclude Include="src\riscv\cpu.h" />
+    <ClInclude Include="src\riscv\tlb.h" />
     <ClInclude Include="src\syscall.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

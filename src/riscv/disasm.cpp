@@ -202,16 +202,67 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 		}
 		break;
 	case Opcode::System:
-		// TODO: Implement all the other system instructions.
-		switch (instr.I.imm) {
-		case 0: // ECALL
-			bx::snprintf(buf, len, "ecall");
+		switch (instr.I.funct3) {
+		case 0: // ECALL, EBREAK, XRET
+			if (instr.I.imm == 0) {
+				bx::snprintf(buf, len, "ecall");
+			} else if (instr.I.imm == 1) {
+				bx::snprintf(buf, len, "ebreak");
+			} else {
+				if ((instr.I.imm & 0x1F) == 2) {
+					const char* xret[] = { "uret", "sret", "hret", "mret" };
+					bx::snprintf(buf, len, "%s", xret[(instr.I.imm >> 8) & 0x03]);
+				} else {
+					bx::snprintf(buf, len, "Invalid SYSTEM instruction");
+				}
+			}
 			break;
-		case 1: // EBREAK
-			bx::snprintf(buf, len, "ebreak");
+		case 1: // CSRRW
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrw %03Xh, %s", instr.I.imm, s_RegABIName[instr.I.rs1]);
+			} else {
+				bx::snprintf(buf, len, "csrrw %s, %03Xh, %s", s_RegABIName[instr.I.rd], instr.I.imm, s_RegABIName[instr.I.rs1]);
+			}
+			break;
+		case 2: // CSRRS
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrs %03Xh, %s", instr.I.imm, s_RegABIName[instr.I.rs1]);
+			} else if (instr.I.rs1 == 0) {
+				bx::snprintf(buf, len, "csrr %s, %03Xh", s_RegABIName[instr.I.rd], instr.I.imm);
+			} else {
+				bx::snprintf(buf, len, "csrrs %s, %03Xh, %s", s_RegABIName[instr.I.rd], instr.I.imm, s_RegABIName[instr.I.rs1]);
+			}
+			break;
+		case 3: // CSRRC
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrc %03Xh, %s", instr.I.imm, s_RegABIName[instr.I.rs1]);
+			} else {
+				bx::snprintf(buf, len, "csrrc %s, %03Xh, %s", s_RegABIName[instr.I.rd], instr.I.imm, s_RegABIName[instr.I.rs1]);
+			}
+			break;
+		case 5: // CSRRWI
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrwi %03Xh, %03Xh", instr.I.imm, instr.I.rs1);
+			} else {
+				bx::snprintf(buf, len, "csrrwi %s, %03Xh, %03Xh", s_RegABIName[instr.I.rd], instr.I.imm, instr.I.rs1);
+			}
+			break;
+		case 6: // CSRRSI
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrsi %03Xh, %03Xh", instr.I.imm, instr.I.rs1);
+			} else {
+				bx::snprintf(buf, len, "csrrsi %s, %03Xh, %03Xh", s_RegABIName[instr.I.rd], instr.I.imm, instr.I.rs1);
+			}
+			break;
+		case 7: // CSRRCI
+			if (instr.I.rd == 0) {
+				bx::snprintf(buf, len, "csrci %03Xh, %03Xh", instr.I.imm, instr.I.rs1);
+			} else {
+				bx::snprintf(buf, len, "csrrci %s, %03Xh, %03Xh", s_RegABIName[instr.I.rd], instr.I.imm, instr.I.rs1);
+			}
 			break;
 		default:
-			bx::snprintf(buf, len, "Invalid SYSTEM instruction");
+			// Invalid instruction
 			break;
 		}
 		break;

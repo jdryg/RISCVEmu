@@ -6,17 +6,27 @@
 
 namespace riscv
 {
+#define SATP_MODE_MASK        0x80000000
+#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number (
+
+#define PTE_PROTECTION_MASK   0x0000000E
+#define PTE_PROTECTION_SHIFT  1
+
+#define PROTECTION_READ       0x00000001
+#define PROTECTION_WRITE      0x00000002
+#define PROTECTION_EXECUTE    0x00000004
+
 void cpuReset(CPU* cpu, word_t pc, word_t sp)
 {
+	tlbInit(&cpu->m_ITLB, 16);
+
+	cpu->m_NextState.m_PrivLevel = PrivLevel::Machine;
 	cpu->m_NextState.m_IRegs[0] = 0;
 	cpu->m_NextState.m_IRegs[2] = sp;
 	cpu->m_NextState.m_PC = pc;
-	cpu->m_NextState.m_CSR[CSR::cycle] = 0;
-	cpu->m_NextState.m_CSR[CSR::cycleh] = 0;
-	cpu->m_NextState.m_CSR[CSR::time] = 0;
-	cpu->m_NextState.m_CSR[CSR::timeh] = 0;
-	cpu->m_NextState.m_CSR[CSR::instret] = 0;
-	cpu->m_NextState.m_CSR[CSR::instreth] = 0;
+	bx::memSet(cpu->m_NextState.m_CSR, 0, sizeof(word_t) * 4096);
+	cpu->m_NextState.m_CSR[CSR::misa] = 0x40100100; // RV32IU
+	cpu->m_NextState.m_CSR[CSR::mimpid] = 0x00010000; // v1.0
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
@@ -61,15 +71,77 @@ void cpuExecuteSystemCall(CPU* cpu)
 	}
 }
 
+bool cpuMemRead32(CPU* cpu, Memory* mem, TLB* tlb, uint32_t virtualAddress, uint32_t& data)
+{
+	const uint32_t privLevel = (uint32_t)cpuGetPrivLevel(cpu);
+
+	if (tlb == nullptr) {
+		// Virtual address is the physical address.
+		data = memRead32(mem, virtualAddress, 0xFFFFFFFF, privLevel, true);
+		return true;
+	}
+
+	// Memory read with a TLB
+	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	TLBLookupResult tlbResult = tlbLookup(&cpu->m_ITLB, virtualPageNumber);
+	if (tlbResult.m_Hit) {
+		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
+		if ((pageProtectionFlags & (PROTECTION_READ | PROTECTION_EXECUTE)) != (PROTECTION_READ | PROTECTION_EXECUTE)) {
+			const uint32_t offset = virtualAddress & kAddressOffsetMask;
+			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
+			data = memRead32(mem, physicalAddress, 0xFFFFFFFF, privLevel, true); // Move protection checks outside memRead32()
+			return true;
+		} else {
+			RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
+		}
+	} else {
+		// NOTE: If the code below happens in the HW then we can access satp CSR without checking for the current
+		// privilege mode. If it happens in SW we must raise an exception, switch to M-mode and then read the satp.
+		// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
+		// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
+		// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
+		const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
+		if ((satp & SATP_MODE_MASK) == 0) {
+			// No translation needed
+			// TODO: Should this check be moved before TLB lookup?
+			data = memRead32(mem, virtualAddress, 0xFFFFFFFF, privLevel, true);
+			return true;
+		} else {
+			// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
+			const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
+			const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
+			const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
+			PageTableEntry pte;
+			pte.m_Word = memRead32(mem, pageTableEntryPhysicalAddr, 0xFFFFFFFF, 3, false);
+			if (!pte.m_Fields.m_Valid) {
+				RISCV_CHECK(false, "Segmentation fault"); // TODO: Raise exception
+			} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
+				RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
+			} else {
+				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
+				tlbInsert(&cpu->m_ITLB, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+
+				// Retry instruction on next tick.
+			}
+		}
+	}
+
+	return false;
+}
+
 // Issues: Multiple memory reads and writes in a single cycle (assuming Von Neumann architecture).
 // A single read (read next instruction) and a single write (i.e. from store instructions) can be implemented
 // by using both the rising and falling edge of the clock. But a 2nd read (i.e. from load instructions) cannot
 // be implemented (requires a combinational read from memory; if at all possible).
 void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 {
-	Instruction instr;
-	instr.m_Word = memRead32(mem, cpuGetPC(cpu), RegionFlags::Execute);
+	const uint32_t privLevel = (uint32_t)cpuGetPrivLevel(cpu);
 
+	Instruction instr;
+	if (!cpuMemRead32(cpu, mem, &cpu->m_ITLB, cpuGetPC(cpu), instr.m_Word)) {
+		return; // Exception or retry instruction after filling TLB.
+	}
+	
 	cpuSetPC(cpu, cpuGetPC(cpu) + 4);
 
 	// Opcode is common to all instruction types.
@@ -79,28 +151,27 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 	case Opcode::Load:
 		switch (instr.I.funct3) {
 		case 0: // LB
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0) & 0xFF, 7));
+			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x000000FF, privLevel, false), 7));
 			break;
 		case 1: // LH
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0) & 0xFFFF, 15));
+			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x0000FFFF, privLevel, false), 15));
 			break;
 		case 2: // LW
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0));
+			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0xFFFFFFFF, privLevel, false));
 			break;
 		case 4: // LBU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0) & 0xFF);
+			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x000000FF, privLevel, false));
 			break;
 		case 5: // LHU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0) & 0xFFFF);
+			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x0000FFFF, privLevel, false));
 			break;
 		default:
-			RISCV_CHECK(false, "Invalid load size (%01Xh)", instr.I.funct3);
+			RISCV_CHECK(false, "Illegal instruction exception: Invalid load size (%01Xh)", instr.I.funct3);
 			break;
 		}
 		break;
 	case Opcode::MiscMem:
-		// TODO: 
-		RISCV_CHECK(false, "MISC-MEM opcodes not implemented yet");
+		// TODO: For now these are just NOPs.
 		break;
 	case Opcode::OpImm:
 		switch (instr.I.funct3) {
@@ -147,16 +218,16 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 	case Opcode::Store:
 		switch (instr.S.funct3) {
 		case 0: // SB
-			memWrite8(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), (uint8_t)(cpuGetRegister(cpu, instr.S.rs2) & 0xFF));
+			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0x000000FF, privLevel);
 			break;
 		case 1: // SH
-			memWrite16(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), (uint16_t)(cpuGetRegister(cpu, instr.S.rs2) & 0xFFFF));
+			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0x0000FFFF, privLevel);
 			break;
 		case 2: // SW
-			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2));
+			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0xFFFFFFFF, privLevel);
 			break;
 		default:
-			RISCV_CHECK(false, "Invalid store width (%02Xh)", instr.S.funct3);
+			RISCV_CHECK(false, "Illegal instruction exception: Invalid store width (%02Xh)", instr.S.funct3);
 			break;
 		}
 		break;
@@ -246,7 +317,7 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 		break;
 	case Opcode::System:
 		switch (instr.I.funct3) {
-		case 0: // ECALL, EBREAK
+		case 0: // ECALL, EBREAK, XRET
 			RISCV_CHECK(instr.I.rd == 0, "Invalid rd field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rd);
 			RISCV_CHECK(instr.I.rs1 == 0, "Invalid rs1 field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rs1);
 			switch (instr.I.imm) {
@@ -257,7 +328,14 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 				RISCV_CHECK(false, "EBREAK not implemented yet");
 				break;
 			default:
-				RISCV_CHECK(false, "Invalid SYSTEM instruction (imm = %08Xh)", instr.I.imm);
+				if ((instr.I.imm & 0x1F) == 2) {
+					// XRET
+					RISCV_CHECK((instr.I.imm >> 8) <= cpuGetPrivLevel(cpu), "Illegal instruction exception: XRET called from lower privilege level");
+					cpuReturnFromException(cpu);
+				} else {
+					RISCV_CHECK(false, "Illegal instruction exception: Invalid SYSTEM instruction (imm = %08Xh)", instr.I.imm);
+				}
+				break;
 			}
 			break;
 		case 1: // CSRRW

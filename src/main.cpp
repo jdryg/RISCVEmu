@@ -36,8 +36,10 @@ struct App
 	Memory* m_RAM;
 	Debugger* m_Dbg;
 
-	uint8_t* m_ELFData;
-	uint32_t m_ELFSize;
+	uint8_t* m_KernelELFData;
+	uint8_t* m_ProgramELFData;
+	uint32_t m_KernelELFSize;
+	uint32_t m_ProgramELFSize;
 	int m_RAMSizeMB;
 	int m_StackSizeKB;
 	int m_InitError;
@@ -53,8 +55,10 @@ struct App
 		, m_RAM(nullptr)
 		, m_Dbg(nullptr)
 		, m_WinVis(visibleWindows)
-		, m_ELFData(nullptr)
-		, m_ELFSize(0)
+		, m_KernelELFData(nullptr)
+		, m_KernelELFSize(0)
+		, m_ProgramELFData(nullptr)
+		, m_ProgramELFSize(0)
 		, m_InitError(INIT_ERR_SUCCESS)
 		, m_RAMSizeMB(4)
 		, m_StackSizeKB(128)
@@ -101,9 +105,9 @@ int initEmulator(App* app)
 	}
 
 	// Create a RW region for the stack at the end of the address space
-	memAddRegion(mem, ramSize - stackSize, stackSize, RegionFlags::Read | RegionFlags::Write);
+	memAddRegion(mem, ramSize - stackSize, stackSize, RegionFlags::Read | RegionFlags::Write, 0);
 
-	elf::Info elfInfo = elf::load(app->m_ELFData, mem);
+	elf::Info elfInfo = elf::load(app->m_KernelELFData, mem);
 	if (elfInfo.m_EntryPointAddr == ~0u) {
 		return INIT_ERR_INVALID_ELF;
 	}
@@ -165,6 +169,55 @@ void doMainMenu(App* app)
 	}
 }
 
+void doWin_Setup_ELFFile(const char* str_id, char* filename, uint32_t len, uint8_t*& elfData, uint32_t& elfSize, bool editable)
+{
+	ImGui::PushID(str_id);
+
+	ImGui::InputText("##ELF", filename, len, ImGuiInputTextFlags_ReadOnly);
+
+	if (editable) {
+		ImGui::SameLine();
+		if (ImGui::Button("Browse...")) {
+			nfdchar_t* outPath = nullptr;
+			nfdresult_t result = NFD_OpenDialog(nullptr, nullptr, &outPath);
+			if (result == NFD_OKAY) {
+				bx::snprintf(filename, len, "%s", outPath);
+
+				elfData = readFile(outPath, elfSize);
+
+				free(outPath);
+			}
+		}
+	}
+
+	if (!elfData) {
+		ImGui::Text("No ELF loaded yet.");
+	} else {
+		elf::Elf32_Ehdr* header = (elf::Elf32_Ehdr*)elfData;
+		if (!elf::isELF32(header->e_ident)) {
+			ImGui::Text("Loaded file is not a valid 32-bit ELF file.");
+		} else {
+			ImGui::Text("Type: %u", header->e_type);
+			ImGui::Text("Machine: %u", header->e_machine);
+			ImGui::Text("Version: %u", header->e_version);
+			ImGui::Text("Entry: %08Xh", header->e_entry);
+			ImGui::Text("Flags: %08Xh", header->e_flags);
+
+			// TODO: Show program/section headers
+			if (ImGui::TreeNode("Program headers")) {
+				ImGui::Text("Not implemented yet.");
+				ImGui::TreePop();
+			}
+			if (ImGui::TreeNode("Section headers")) {
+				ImGui::Text("Not implemented yet.");
+				ImGui::TreePop();
+			}
+		}
+	}
+
+	ImGui::PopID();
+}
+
 void doWin_Setup(App* app)
 {
 	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
@@ -173,48 +226,20 @@ void doWin_Setup(App* app)
 	bool opened = (app->m_WinVis & UI_WIN_SETUP) != 0;
 	if (ImGui::Begin("Setup", &opened, ImGuiWindowFlags_ShowBorders)) {
 		if (!app->m_CPU) {
-			ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
-			ImGui::SliderInt("Stack [KB]", &app->m_StackSizeKB, 8, 1024);
-
-			static char elfFilename[_MAX_PATH] = { 0 }; // TODO: Move to App?
-			ImGui::InputText("##ELF", elfFilename, _MAX_PATH, ImGuiInputTextFlags_ReadOnly);
-			ImGui::SameLine();
-			if (ImGui::Button("Browse...")) {
-				nfdchar_t* outPath = nullptr;
-				nfdresult_t result = NFD_OpenDialog(nullptr, nullptr, &outPath);
-				if (result == NFD_OKAY) {
-					bx::snprintf(elfFilename, _MAX_PATH, "%s", outPath);
-
-					app->m_ELFData = readFile(outPath, app->m_ELFSize);
-
-					free(outPath);
-				}
+			if (ImGui::CollapsingHeader("System configuration")) {
+				ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
+				ImGui::SliderInt("Stack [KB]", &app->m_StackSizeKB, 8, 1024); // TODO: Should be handled by the Kernel/OS.
 			}
 		}
 
-		if (ImGui::CollapsingHeader("ELF Info", ImGuiTreeNodeFlags_DefaultOpen)) {
-			if (!app->m_ELFData) {
-				ImGui::Text("No ELF loaded yet.");
-			} else {
-				elf::Elf32_Ehdr* header = (elf::Elf32_Ehdr*)app->m_ELFData;
-				if (!elf::isELF32(header->e_ident)) {
-					ImGui::Text("Loaded file is not a valid 32-bit ELF file.");
-				} else {
-					ImGui::Text("Type: %u", header->e_type);
-					ImGui::Text("Machine: %u", header->e_machine);
-					ImGui::Text("Version: %u", header->e_version);
-					ImGui::Text("Entry: %08Xh", header->e_entry);
-					ImGui::Text("Flags: %08Xh", header->e_flags);
-					
-					// TODO: Show program/section headers
-					if (ImGui::CollapsingHeader("Program headers")) {
-						ImGui::Text("Not implemented yet.");
-					}
-					if (ImGui::CollapsingHeader("Section headers")) {
-						ImGui::Text("Not implemented yet.");
-					}
-				}
-			}
+		if (ImGui::CollapsingHeader("Kernel", ImGuiTreeNodeFlags_DefaultOpen)) {
+			static char elfFilename[256] = { 0 }; // TODO: Move to App?
+			doWin_Setup_ELFFile("##kernel", elfFilename, 256, app->m_KernelELFData, app->m_KernelELFSize, !app->m_CPU);
+		}
+
+		if (ImGui::CollapsingHeader("Program", ImGuiTreeNodeFlags_DefaultOpen)) {
+			static char elfFilename[256] = { 0 }; // TODO: Move to App?
+			doWin_Setup_ELFFile("##program", elfFilename, 256, app->m_ProgramELFData, app->m_ProgramELFSize, !app->m_CPU);
 		}
 
 		if (app->m_CPU) {
@@ -228,7 +253,7 @@ void doWin_Setup(App* app)
 				initEmulator(app);
 			}
 		} else {
-			if (app->m_ELFData) {
+			if (app->m_KernelELFData) {
 				if (ImGui::Button("Start", ImVec2(-1, 0))) {
 					app->m_InitError = initEmulator(app);
 				}
@@ -268,18 +293,25 @@ void doWin_Debugger(App* app)
 					app->m_Run = false;
 				}
 			} else {
+				static int ticksPerFrame = 1;
+
 				if (ImGui::Button("Run")) {
-					app->m_NumCPUSteps = 1;
+					app->m_NumCPUSteps = ticksPerFrame;
 					app->m_Run = true;
 				}
+
 				ImGui::SameLine();
 				if (ImGui::Button("Step 1")) {
 					app->m_NumCPUSteps = 1;
 				}
+
 				ImGui::SameLine();
 				if (ImGui::Button("Step 100")) {
 					app->m_NumCPUSteps = 100;
 				}
+
+				ImGui::SameLine();
+				ImGui::DragInt("Ticks/frame", &ticksPerFrame, 1.0f, 1, 10000);
 			}
 
 			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();

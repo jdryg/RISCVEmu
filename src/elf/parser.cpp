@@ -39,7 +39,7 @@ void load_segment(const uint8_t* data, const Elf32_Phdr* ph, Memory* memory)
 	bx::memCopy(memVirtualToPhysical(memory, mempos), &data[filepos], filesize);
 	bx::memSet(memVirtualToPhysical(memory, mempos + filesize), 0, memsize - filesize);
 
-	memAddRegion(memory, mempos, memsize, ph->p_flags);
+	memAddRegion(memory, mempos, memsize, ph->p_flags, 0);
 }
 
 Info load(const uint8_t* data, Memory* memory)
@@ -71,7 +71,7 @@ Info load(const uint8_t* data, Memory* memory)
 			bx::memSet(memVirtualToPhysical(memory, sh[i].sh_addr), 0, sh[i].sh_size);
 			initialBreak = sh[i].sh_addr + sh[i].sh_size;
 
-			memAddRegion(memory, sh[i].sh_addr, sh[i].sh_size, RegionFlags::Read | RegionFlags::Write);
+			memAddRegion(memory, sh[i].sh_addr, sh[i].sh_size, RegionFlags::Read | RegionFlags::Write, 0);
 
 			break;
 		}
