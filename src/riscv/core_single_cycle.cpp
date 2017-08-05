@@ -30,47 +30,6 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
-void cpuExecuteSystemCall(CPU* cpu)
-{
-	//uint32_t sysCallID = cpuGetRegister(cpu, IReg::a7);
-	//switch (sysCallID) {
-	//case SYS_fstat:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1)));
-	//	break;
-	//case SYS_brk:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_brk(cpuGetRegister(cpu, IReg::a0)));
-	//	break;
-	//case SYS_close:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_close((int)cpuGetRegister(cpu, IReg::a0)));
-	//	break;
-	//case SYS_lseek:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, IReg::a0), (size_t)cpuGetRegister(cpu, IReg::a1), (int)cpuGetRegister(cpu, IReg::a2)));
-	//	break;
-	//case SYS_read:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_read((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
-	//	break;
-	//case SYS_write:
-	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_write((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
-	//	break;
-	//case SYS_exit:
-	//	sys_exit((int)cpuGetRegister(cpu, IReg::a0));
-	//	break;
-	//default:
-	//	RISCV_TRACE("0x%08X: ECALL a0=%08Xh, a1=%08Xh, a2=%08Xh, a3=%08Xh, a4=%08Xh, a5=%08Xh, a6=%08Xh, a7=%08Xh\n"
-	//		, cpuGetPC(cpu)
-	//		, cpuGetRegister(cpu, IReg::a0)
-	//		, cpuGetRegister(cpu, IReg::a1)
-	//		, cpuGetRegister(cpu, IReg::a2)
-	//		, cpuGetRegister(cpu, IReg::a3)
-	//		, cpuGetRegister(cpu, IReg::a4)
-	//		, cpuGetRegister(cpu, IReg::a5)
-	//		, cpuGetRegister(cpu, IReg::a6)
-	//		, cpuGetRegister(cpu, IReg::a7));
-	//	RISCV_CHECK(false, "Unknown syscall %08Xh", cpuGetRegister(cpu, IReg::a7));
-	//	break;
-	//}
-}
-
 bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t& data, bool isInstruction)
 {
 	if (tlb == nullptr) {
@@ -134,22 +93,28 @@ bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 // be implemented (requires a combinational read from memory; if at all possible).
 void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 {
+	const uint32_t pc = cpuGetPC(cpu);
+
 	Instruction instr;
-	if (!cpuMemRead(cpu, mm, &cpu->m_ITLB, cpuGetPC(cpu), instr.m_Word, true)) {
+	if (!cpuMemRead(cpu, mm, &cpu->m_ITLB, pc, instr.m_Word, true)) {
 		return; // Exception or retry instruction after filling TLB.
 	}
 	
-	cpuSetPC(cpu, cpuGetPC(cpu) + 4);
+	cpuSetPC(cpu, pc + 4);
 
 	// Opcode is common to all instruction types.
 	const uint32_t opcode = instr.R.opcode;
-	RISCV_CHECK((opcode & 3) == 3, "Invalid opcode");
+	if ((opcode & 3) != 3) {
+		cpuRaiseException(cpu, Exception::IllegalInstruction);
+		return;
+	}
+
 	switch (opcode) {
 	case Opcode::Load:
 	{
 		const uint32_t loadSize = instr.I.funct3 & 0x03;
 		if (loadSize > 2) {
-			RISCV_CHECK(false, "Illegal instruction exception: Invalid load size (%01Xh)", instr.I.funct3);
+			cpuRaiseException(cpu, Exception::IllegalInstruction);
 		} else {
 			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << loadSize) << 3));
 			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.I.rs1) + immI(instr);
@@ -157,7 +122,7 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 			// TODO: Address translation
 			uint32_t val;
 			if (!mmRead(mm, virtualAddr, byteMask, val)) {
-				RISCV_CHECK(false, "Failed to read physical address %08Xh", virtualAddr);
+				cpuRaiseException(cpu, Exception::LoadAccessFault); // Or is it LoadPageFault?
 			} else {
 				const uint32_t zeroExtend = instr.I.funct3 & 0x04;
 				if (zeroExtend) {
@@ -213,13 +178,13 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		}
 		break;
 	case Opcode::AUIPC:
-		cpuSetRegister(cpu, instr.U.rd, cpuGetPC(cpu) + immU(instr));
+		cpuSetRegister(cpu, instr.U.rd, pc + immU(instr));
 		break;
 	case Opcode::Store:
 	{
 		const uint32_t storeSize = instr.S.funct3;
 		if (storeSize > 2) {
-			RISCV_CHECK(false, "Illegal instruction exception: Invalid store size (%01Xh)", instr.S.funct3);
+			cpuRaiseException(cpu, Exception::IllegalInstruction);
 		} else {
 			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << storeSize) << 3));
 			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.S.rs1) + immS(instr);
@@ -227,7 +192,7 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 
 			// TODO: Address translation
 			if (!mmWrite(mm, virtualAddr, byteMask, val)) {
-				RISCV_CHECK(false, "Failed to write physical address %08Xh", virtualAddr);
+				cpuRaiseException(cpu, Exception::StoreAccessFault); // Or is it StorePageFault?
 			}
 		}
 	}
@@ -294,49 +259,74 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 			jump = cpuGetRegister(cpu, instr.B.rs1) >= cpuGetRegister(cpu, instr.B.rs2);
 			break;
 		default:
-			RISCV_CHECK(false, "Invalid branch code %02Xh", instr.B.funct3);
+			cpuRaiseException(cpu, Exception::IllegalInstruction);
 			break;
 		}
 
 		if (jump) {
-			cpuSetPC(cpu, cpuGetPC(cpu) + immB(instr));
+			cpuSetPC(cpu, pc + immB(instr));
 		}
 	}
 		break;
 	case Opcode::JALR:
-		// TODO: The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
-		// address is not aligned to a four-byte boundary.
-		RISCV_CHECK(instr.I.funct3 == 0, "Invalid funct3 field in JALR. Expecting 00h, found %02Xh", instr.I.funct3);
-		cpuSetRegister(cpu, instr.I.rd, cpuGetPC(cpu) + 4);
-		cpuSetPC(cpu, (cpuGetRegister(cpu, instr.I.rs1) + immI(instr)) & 0xFFFFFFFE);
+		if (instr.I.funct3 != 0) {
+			cpuRaiseException(cpu, Exception::IllegalInstruction);
+		} else {
+			// The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
+			// address is not aligned to a four-byte boundary.
+			const uint32_t addr = (cpuGetRegister(cpu, instr.I.rs1) + immI(instr));
+			if (addr & 0x03) {
+				cpuRaiseException(cpu, Exception::InstructionAddressMisaligned);
+			} else {
+				cpuSetRegister(cpu, instr.I.rd, pc + 4);
+				cpuSetPC(cpu, addr & 0xFFFFFFFE);
+			}
+		}
 		break;
 	case Opcode::JAL:
-		// TODO: The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
+	{
+		// The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
 		// address is not aligned to a four-byte boundary.
-		cpuSetRegister(cpu, instr.J.rd, cpuGetPC(cpu) + 4);
-		cpuSetPC(cpu, cpuGetPC(cpu) + immJ(instr));
+		const uint32_t addr = pc + immJ(instr);
+		if (addr & 0x03) {
+			cpuRaiseException(cpu, Exception::InstructionAddressMisaligned);
+		} else {
+			cpuSetRegister(cpu, instr.J.rd, pc + 4);
+			cpuSetPC(cpu, addr);
+		}
+	}
 		break;
 	case Opcode::System:
 		switch (instr.I.funct3) {
 		case 0: // ECALL, EBREAK, XRET
-			RISCV_CHECK(instr.I.rd == 0, "Invalid rd field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rd);
-			RISCV_CHECK(instr.I.rs1 == 0, "Invalid rs1 field in SYSTEM instruction (funct3=000). Expecting 00h, found %02Xh", instr.I.rs1);
-			switch (instr.I.imm) {
-			case 0: // ECALL
-				cpuExecuteSystemCall(cpu);
-				break;
-			case 1: // EBREAK
-				RISCV_CHECK(false, "EBREAK not implemented yet");
-				break;
-			default:
-				if ((instr.I.imm & 0x1F) == 2) {
-					// XRET
-					RISCV_CHECK((instr.I.imm >> 8) <= cpuGetPrivLevel(cpu), "Illegal instruction exception: XRET called from lower privilege level");
-					cpuReturnFromException(cpu);
-				} else {
-					RISCV_CHECK(false, "Illegal instruction exception: Invalid SYSTEM instruction (imm = %08Xh)", instr.I.imm);
+			if (instr.I.rd != 0 || instr.I.rs1 != 0) {
+				cpuRaiseException(cpu, Exception::IllegalInstruction);
+			} else {
+				switch (instr.I.imm) {
+				case 0: // ECALL
+					if (cpuGetPrivLevel(cpu) == PrivLevel::User) {
+						cpuRaiseException(cpu, Exception::EnvCallFromUser);
+					} else {
+						RISCV_CHECK(false, "This should neven happen because the return of the syscall handler will call mret which return us to user mode.");
+						cpuRaiseException(cpu, Exception::EnvCallFromMachine);
+					}
+					break;
+				case 1: // EBREAK
+					cpuRaiseException(cpu, Exception::Breakpoint);
+					break;
+				default:
+					if ((instr.I.imm & 0x1F) == 2) {
+						// XRET
+						if ((instr.I.imm >> 8) > cpuGetPrivLevel(cpu)) {
+							cpuRaiseException(cpu, Exception::IllegalInstruction);
+						} else {
+							cpuReturnFromException(cpu);
+						}
+					} else {
+						cpuRaiseException(cpu, Exception::IllegalInstruction);
+					}
+					break;
 				}
-				break;
 			}
 			break;
 		case 1: // CSRRW
@@ -381,7 +371,7 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		}
 		break;
 	default:
-		RISCV_CHECK(false, "Invalid opcode %02Xh", opcode);
+		cpuRaiseException(cpu, Exception::IllegalInstruction);
 		break;
 	}
 

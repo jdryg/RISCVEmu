@@ -1,6 +1,7 @@
 #include "elf/parser.h"
 #include "riscv/cpu.h"
 #include "riscv/memory_map.h"
+#include "console.h"
 #include "debugger.h"
 #include "syscall.h"
 #include "debug.h"
@@ -20,6 +21,8 @@
 #include <malloc.h>
 #include <memory.h>
 
+#define MAX_STDIN_BUFFER 256
+
 #define INIT_ERR_SUCCESS     0
 #define INIT_ERR_NO_MEMORY   1
 #define INIT_ERR_INVALID_ELF 2
@@ -30,14 +33,17 @@
 #define UI_WIN_BREAKPOINTS 0x00000008
 #define UI_WIN_TERMINAL    0x00000010
 
-#define KERNEL_BASE_ADDR   0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
-#define RAM_BASE_ADDR      0x00100000
+#define KERNEL_BASE_ADDR       0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
+#define RAM_BASE_ADDR          0x00100000
+#define CONSOLE_UART_BASE_ADDR 0x80000000
 
 struct App
 {
 	GLFWwindow* m_GLFWWindow;
 	riscv::CPU* m_CPU;
 	riscv::MemoryMap* m_MemoryMap;
+	riscv::Device* m_ConsoleUART;
+	Console* m_Console;
 	Debugger* m_Dbg;
 
 	uint8_t* m_KernelELFData;
@@ -51,6 +57,9 @@ struct App
 	bool m_Run;
 
 	ImFont* m_MonoFont;
+	char m_StdInBuffer[MAX_STDIN_BUFFER];
+	bool m_StdInInputForceUpdate;
+	bool m_StdInInputFlush;
 	uint32_t m_WinVis;
 
 	App(uint32_t visibleWindows)
@@ -69,7 +78,13 @@ struct App
 		, m_NumCPUSteps(0)
 		, m_Run(false)
 		, m_MonoFont(nullptr)
-	{}
+		, m_ConsoleUART(nullptr)
+		, m_Console(nullptr)
+		, m_StdInInputForceUpdate(false)
+		, m_StdInInputFlush(false)
+	{
+		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
+	}
 
 	~App()
 	{}
@@ -110,8 +125,13 @@ int initEmulator(App* app)
 	if (!ram) {
 		return INIT_ERR_NO_MEMORY;
 	}
-
 	riscv::mmMapDevice(mm, ram, RAM_BASE_ADDR, ramSize);
+
+	riscv::Device* consoleUART = riscv::device::uartCreate();
+	if (!consoleUART) {
+		return INIT_ERR_NO_MEMORY;
+	}
+	riscv::mmMapDevice(mm, consoleUART, CONSOLE_UART_BASE_ADDR, riscv::device::kUARTMemorySize);
 
 	// Load kernel into memory...
 	uint32_t entryPointAddr = elf::load(app->m_KernelELFData, KERNEL_BASE_ADDR, mm);
@@ -124,6 +144,8 @@ int initEmulator(App* app)
 
 	app->m_CPU = cpu;
 	app->m_MemoryMap = mm;
+	app->m_ConsoleUART = consoleUART;
+	app->m_Console = consoleCreate(40, 25);
 	app->m_Dbg = dbgCreate();
 	app->m_ScrollToPC = true;
 
@@ -134,6 +156,8 @@ void shutdownEmulator(App* app)
 {
 	free(app->m_CPU);
 	app->m_CPU = nullptr;
+
+	app->m_ConsoleUART = nullptr; // Will be destroyed in mmDestroy()
 
 	riscv::mmDestroy(app->m_MemoryMap);
 	app->m_MemoryMap = nullptr;
@@ -320,6 +344,7 @@ void doWin_Debugger(App* app)
 
 			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
 
+			// TODO: Change scrolling to be able to see the whole address space.
 			const uint32_t ramSize = 1 << 20;
 			const uint32_t numWords = ramSize / 4; // TODO: Disassemble only the .text section.
 			const uint32_t pc = cpuGetPC(app->m_CPU);
@@ -532,41 +557,56 @@ void doWin_Breakpoints(App* app)
 	}
 }
 
-void doWin_Terminal(App* app)
+int consoleStdInCallback(ImGuiTextEditCallbackData* data)
 {
-	// TODO: Move to app
-	static char charBuffer[40 * 25]; // 320x200 character display
-	static bool initialized = false;
-	if (!initialized) {
-		memset(charBuffer, 0, sizeof(char) * 1000);
+	App* app = (App*)data->UserData;
 
-		for (uint32_t i = 0; i < 25; ++i) {
-			bx::memCopy(&charBuffer[i * 40], "0123456789012345678901234567890123456789", 40);
-		}
-
-		initialized = true;
+	if (app->m_StdInInputForceUpdate) {
+		bx::memCopy(&data->Buf[0], &data->Buf[1], data->BufTextLen);
+		data->BufDirty = true;
+		data->BufTextLen--;
+		data->CursorPos--;
+		app->m_StdInInputForceUpdate = false;
 	}
 
-	ImGui::SetNextWindowSize(ImVec2(355, 255), ImGuiSetCond_Always);
+	return 0;
+}
+
+void doWin_Terminal(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(355, 280), ImGuiSetCond_Always);
 	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
 	if (ImGui::Begin("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
-		if (ImGui::BeginChild("##console", ImVec2(-1.0f, -1.0f), true)) {
-			ImGui::PushFont(app->m_MonoFont);
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0));
-			for (uint32_t i = 0; i < 25; ++i) {
-				char row[256];
-				bx::memCopy(row, &charBuffer[i * 40], 40);
-				row[40] = '\0';
-				ImGui::Text(row);
+		if (!app->m_Console) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			const uint8_t* consoleBuffer = consoleGetBuffer(app->m_Console);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
+			if (ImGui::BeginChild("##console", ImVec2(-1.0f, -25.0f), true)) {
+				ImGui::PushFont(app->m_MonoFont);
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0));
+				for (uint32_t i = 0; i < 25; ++i) {
+					char row[256];
+					bx::memCopy(row, &consoleBuffer[i * 40], 40);
+					row[40] = '\0';
+					ImGui::Text(row);
+				}
+				ImGui::PopFont();
+				ImGui::PopStyleVar(1);
+				ImGui::EndChild();
 			}
-			ImGui::PopFont();
 			ImGui::PopStyleVar(1);
-			ImGui::EndChild();
+
+			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], 256, ImVec2(-1.0f, 0.0f), ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_EnterReturnsTrue, consoleStdInCallback, app)) {
+				const uint32_t len = (uint32_t)strlen(app->m_StdInBuffer);
+				app->m_StdInBuffer[len] = '\n';
+				app->m_StdInBuffer[len + 1] = '\0';
+				app->m_StdInInputFlush = true;
+
+			}
 		}
-		ImGui::PopStyleVar(1);
 	}
 	ImGui::End();
 
@@ -640,7 +680,29 @@ int main()
 				uint32_t ns = app.m_NumCPUSteps;
 				bool breakpointReached = false;
 				while (ns-- > 0) {
+					// Transmit any data stored in UART's TX buffer to the console.
+					uint8_t consoleData;
+					if (riscv::device::uartTransmit(app.m_ConsoleUART, consoleData)) {
+						consoleWrite(app.m_Console, consoleData);
+					}
+
+					// Transmit any data from stdin to the UART.
+					const uint32_t stdInBufLen = (uint32_t)strlen(app.m_StdInBuffer);
+					if (stdInBufLen != 0) {
+						if (riscv::device::uartReceive(app.m_ConsoleUART, app.m_StdInBuffer[0])) {
+							// 1 character consumed by the CPU.
+							if (app.m_StdInInputFlush) {
+								// InputText no longer has focus. Flush the buffer.
+								bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], strlen(app.m_StdInBuffer));
+							} else {
+								// InputText still has focus. Let the callback handle the text.
+								app.m_StdInInputForceUpdate = true;
+							}
+						}
+					}
+
 					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_MemoryMap);
+					
 					if (dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) {
 						breakpointReached = true;
 						break;

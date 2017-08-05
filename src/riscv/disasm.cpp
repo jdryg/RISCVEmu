@@ -295,7 +295,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0x000000FF, val)) {
+			if (!mmGet(mm, memAddr, 0x000000FF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
@@ -311,7 +311,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
@@ -326,7 +326,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0xFFFFFFFF, val)) {
+			if (!mmGet(mm, memAddr, 0xFFFFFFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
@@ -388,7 +388,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0x000000FF, val)) {
+			if (!mmGet(mm, memAddr, 0x000000FF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
@@ -403,7 +403,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
@@ -418,7 +418,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
-			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",

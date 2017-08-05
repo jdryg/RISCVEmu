@@ -104,6 +104,7 @@ uint32_t cpuGetPrivLevel(CPU* cpu)
 
 void cpuRaiseException(CPU* cpu, Exception::Enum cause)
 {
+	// TODO: Set mtval in case the exception has a valid value.
 	cpuSetCSR(cpu, CSR::mcause, (word_t)cause);
 	cpuSetCSR(cpu, CSR::mepc, cpuGetPC(cpu));
 	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mtvec));

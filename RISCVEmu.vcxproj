@@ -164,6 +164,7 @@
     <ClCompile Include="bx\src\string.cpp" />
     <ClCompile Include="bx\src\thread.cpp" />
     <ClCompile Include="bx\src\timer.cpp" />
+    <ClCompile Include="src\console.cpp" />
     <ClCompile Include="src\debugger.cpp" />
     <ClCompile Include="src\elf\parser.cpp" />
     <ClCompile Include="src\imgui\imgui.cpp" />
@@ -215,6 +216,7 @@
     <ClInclude Include="bx\include\bx\thread.h" />
     <ClInclude Include="bx\include\bx\timer.h" />
     <ClInclude Include="bx\include\bx\uint32_t.h" />
+    <ClInclude Include="src\console.h" />
     <ClInclude Include="src\debug.h" />
     <ClInclude Include="src\debugger.h" />
     <ClInclude Include="src\elf\parser.h" />

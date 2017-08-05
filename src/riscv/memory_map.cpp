@@ -76,6 +76,20 @@ bool mmWrite(MemoryMap* mm, uint32_t addr, uint32_t byteMask, uint32_t val)
 	return false;
 }
 
+bool mmGet(MemoryMap* mm, uint32_t addr, uint32_t byteMask, uint32_t& val)
+{
+	const uint32_t numDevices = mm->m_NumDevices;
+	DeviceDesc* dd = mm->m_Devices;
+	for (uint32_t i = 0; i < numDevices; ++i, ++dd) {
+		if (addr >= dd->m_StartAddr && addr <= dd->m_EndAddr) {
+			val = dd->m_Dev->get(dd->m_Dev, addr - dd->m_StartAddr, byteMask);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 namespace device
 {
 void destroy(Device* dev)
@@ -113,6 +127,18 @@ void ramWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 	*wordPtr = (val & byteMask) | (oldVal & (~byteMask));
 }
 
+uint32_t ramGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
+{
+	Memory* ram = (Memory*)dev;
+
+	if (relAddr < ram->m_Size) {
+		uint32_t val = *(uint32_t*)&ram->m_Data[relAddr];
+		return val & byteMask;
+	}
+
+	return 0xbaadf00d;
+}
+
 Device* ramCreate(uint32_t size)
 {
 	uint8_t* ramData = (uint8_t*)malloc(sizeof(Memory) + size);
@@ -123,6 +149,7 @@ Device* ramCreate(uint32_t size)
 	Memory* ram = (Memory*)ramData;
 	ram->read = ramRead;
 	ram->write = ramWrite;
+	ram->get = ramGet;
 	ram->m_Data = ramData + sizeof(Memory);
 	ram->m_Size = size;
 
@@ -154,6 +181,18 @@ void romWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 	// Nop
 }
 
+uint32_t romGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
+{
+	Memory* rom = (Memory*)dev;
+
+	if (relAddr < rom->m_Size) {
+		uint32_t val = *(uint32_t*)&rom->m_Data[relAddr];
+		return val & byteMask;
+	}
+
+	return 0xbaadf00d;
+}
+
 Device* romCreate(uint32_t size, const uint8_t* data, uint32_t dataSize)
 {
 	RISCV_CHECK(dataSize <= size, "ROM: Invalid data size (%u > %u)", dataSize, size);
@@ -166,6 +205,7 @@ Device* romCreate(uint32_t size, const uint8_t* data, uint32_t dataSize)
 	Memory* rom = (Memory*)romData;
 	rom->read = romRead;
 	rom->write = romWrite;
+	rom->get = romGet;
 	rom->m_Data = romData + sizeof(Memory);
 	rom->m_Size = size;
 
@@ -175,9 +215,112 @@ Device* romCreate(uint32_t size, const uint8_t* data, uint32_t dataSize)
 	return rom;
 }
 
-void romDestroy(Device* dev)
+// UART
+#define UART_REG_TXDATA 0
+#define UART_REG_RXDATA 1
+#define UART_REG_STATUS 2
+#define UART_NUM_REGS   3
+
+#define UART_STATUS_TXREADY 0x01
+#define UART_STATUS_RXFULL  0x02
+
+struct UART : public Device
 {
-	free(dev);
+	uint32_t m_Regs[UART_NUM_REGS];
+};
+
+uint32_t uartRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
+{
+	UART* uart = (UART*)dev;
+	
+	const uint32_t reg = relAddr >> 2;
+	RISCV_CHECK(reg < UART_NUM_REGS, "Invalid UART relative address %08Xh", relAddr);
+	RISCV_CHECK(reg != UART_REG_TXDATA, "UART: Tried to read TXDATA register");
+
+	if (reg == UART_REG_RXDATA) {
+		RISCV_CHECK(uart->m_Regs[UART_REG_STATUS] & UART_STATUS_RXFULL, "UART: Tried to read data with RXFULL=0");
+
+		uart->m_Regs[UART_REG_STATUS] &= ~UART_STATUS_RXFULL;
+	}
+
+	uint32_t val = uart->m_Regs[reg] & 0x000000FF; // 8-bit registers
+	return val & byteMask;
+}
+
+void uartWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
+{
+	UART* uart = (UART*)dev;
+
+	const uint32_t reg = relAddr >> 2;
+	RISCV_CHECK(reg < UART_NUM_REGS, "Invalid UART relative address %08Xh", relAddr);
+	RISCV_CHECK(reg != UART_REG_RXDATA, "UART: Tried to write RXDATA register");
+
+	if (reg == UART_REG_TXDATA) {
+		RISCV_CHECK(uart->m_Regs[UART_REG_STATUS] & UART_STATUS_TXREADY, "UART: Tried to send data with TXREADY=0");
+
+		uart->m_Regs[UART_REG_STATUS] &= ~UART_STATUS_TXREADY;
+	}
+
+	uart->m_Regs[reg] = ((val & byteMask) & 0x000000FF);
+}
+
+uint32_t uartGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
+{
+	UART* uart = (UART*)dev;
+
+	const uint32_t reg = relAddr >> 2;
+	if (reg < UART_NUM_REGS) {
+		uint32_t val = uart->m_Regs[reg] & 0x000000FF; // 8-bit registers
+		return val & byteMask;
+	}
+
+	return 0xbaadf00d;
+}
+
+bool uartTransmit(Device* dev, uint8_t& data)
+{
+	UART* uart = (UART*)dev;
+
+	if (!(uart->m_Regs[UART_REG_STATUS] & UART_STATUS_TXREADY)) {
+		data = (uint8_t)uart->m_Regs[UART_REG_TXDATA];
+		uart->m_Regs[UART_REG_STATUS] |= UART_STATUS_TXREADY;
+
+		return true;
+	}
+
+	return false;
+}
+
+bool uartReceive(Device* dev, uint8_t data)
+{
+	UART* uart = (UART*)dev;
+
+	if (!(uart->m_Regs[UART_REG_STATUS] & UART_STATUS_RXFULL)) {
+		uart->m_Regs[UART_REG_RXDATA] = data;
+		uart->m_Regs[UART_REG_STATUS] |= UART_STATUS_RXFULL;
+
+		return true;
+	}
+
+	return false;
+}
+
+Device* uartCreate()
+{
+	uint8_t* uartData = (uint8_t*)malloc(sizeof(UART));
+	if (!uartData) {
+		return nullptr;
+	}
+
+	UART* uart = (UART*)uartData;
+	uart->read = uartRead;
+	uart->write = uartWrite;
+	uart->get = uartGet;
+	uart->m_Regs[UART_REG_TXDATA] = 0;
+	uart->m_Regs[UART_REG_RXDATA] = 0;
+	uart->m_Regs[UART_REG_STATUS] = UART_STATUS_TXREADY;
+
+	return uart;
 }
 }
 }
