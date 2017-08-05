@@ -1,5 +1,5 @@
 #include "parser.h"
-#include "../memory.h"
+#include "../riscv/memory_map.h"
 #include "../debug.h"
 #include <string.h>
 #include <bx/bx.h>
@@ -23,7 +23,7 @@ bool isELF32(const uint8_t* ident)
 	return true;
 }
 
-void load_segment(const uint8_t* data, const Elf32_Phdr* ph, Memory* memory)
+void load_segment(const uint8_t* data, const Elf32_Phdr* ph, riscv::MemoryMap* mm, uint32_t baseAddr)
 {
 	const uint32_t memsize = ph->p_memsz;
 	if (memsize == 0) {
@@ -33,56 +33,33 @@ void load_segment(const uint8_t* data, const Elf32_Phdr* ph, Memory* memory)
 	const uint32_t filesize = ph->p_filesz;
 	const uint32_t mempos = ph->p_vaddr;
 	const uint32_t filepos = ph->p_offset;
-	RISCV_CHECK(mempos < memory->m_Size, "Invalid segment virtual address");
-	RISCV_CHECK(mempos + memsize < memory->m_Size, "Invalid segment virtual address");
 
-	bx::memCopy(memVirtualToPhysical(memory, mempos), &data[filepos], filesize);
-	bx::memSet(memVirtualToPhysical(memory, mempos + filesize), 0, memsize - filesize);
-
-	memAddRegion(memory, mempos, memsize, ph->p_flags, 0);
+	if (ph->p_flags & PF_W) {
+		riscv::Device* ram = riscv::device::ramCreate(memsize);
+		riscv::mmMapDevice(mm, ram, baseAddr + mempos, memsize);
+	} else {
+		riscv::Device* rom = riscv::device::romCreate(memsize, &data[filepos], filesize);
+		riscv::mmMapDevice(mm, rom, baseAddr + mempos, memsize);
+	}
 }
 
-Info load(const uint8_t* data, Memory* memory)
+uint32_t load(const uint8_t* data, uint32_t baseAddr, riscv::MemoryMap* mm)
 {
 	const Elf32_Ehdr* elf = (const Elf32_Ehdr*)data;
 	if (!isELF32(elf->e_ident) || 
 		elf->e_type != ET_EXEC ||
 		elf->e_machine != EM_RISCV) 
 	{
-		return { ~0u, ~0u };
+		return ~0u;
 	}
 
 	const Elf32_Phdr* ph = (const Elf32_Phdr*)&data[elf->e_phoff];
 	for (uint32_t i = 0; i < elf->e_phnum; ++i) {
 		if (ph[i].p_type == ELF_PT_LOAD) {
-			load_segment(data, &ph[i], memory);
+			load_segment(data, &ph[i], mm, baseAddr);
 		}
 	}
 	
-	// Find .bss section
-	uint32_t initialBreak = ~0u;
-	const Elf32_Shdr* sh = (const Elf32_Shdr*)&data[elf->e_shoff];
-	const Elf32_Shdr* stringTable = &sh[elf->e_shstrndx];
-	const char* stringTableData = (const char*)&data[stringTable->sh_offset];
-	for (uint32_t i = 0; i < elf->e_shnum; ++i) {
-		const char* name = &stringTableData[sh[i].sh_name];
-		if (!strcmp(name, ".bss")) {
-			// Zero initialize bss section
-			bx::memSet(memVirtualToPhysical(memory, sh[i].sh_addr), 0, sh[i].sh_size);
-			initialBreak = sh[i].sh_addr + sh[i].sh_size;
-
-			memAddRegion(memory, sh[i].sh_addr, sh[i].sh_size, RegionFlags::Read | RegionFlags::Write, 0);
-
-			break;
-		}
-	}
-
-	RISCV_CHECK(initialBreak != ~0u, ".bss section not found or it has and invalid virtual address.");
-
-	Info inf;
-	inf.m_EntryPointAddr = elf->e_entry;
-	inf.m_InitialBreak = initialBreak;
-
-	return inf;
+	return elf->e_entry;
 }
 }

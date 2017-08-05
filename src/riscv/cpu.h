@@ -17,10 +17,10 @@ typedef uint64_t word_t;
 #error "Invalid XLEN value";
 #endif
 
-struct Memory;
-
 namespace riscv
 {
+struct MemoryMap;
+
 const uint32_t kPageShift = 12; // 4k
 const uint32_t kPageSize = 1 << kPageShift; // virtual and physical
 const uint32_t kAddressOffsetMask = (1 << kPageShift) - 1;
@@ -345,11 +345,11 @@ void cpuReturnFromException(CPU* cpu);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);
-void cpuTick_SingleCycle(CPU* cpu, Memory* mem);
+void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mem);
 
 // disasm.cpp
 void disasmInstruction(uint32_t instr, uint32_t addr, char* buf, uint32_t len);
-void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t instr, uint32_t addr, char* str, uint32_t len);
+void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mem, uint32_t instr, uint32_t addr, char* str, uint32_t len);
 }
 
 #endif

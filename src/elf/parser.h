@@ -3,7 +3,10 @@
 
 #include <stdint.h>
 
-struct Memory;
+namespace riscv
+{
+struct MemoryMap;
+}
 
 namespace elf
 {
@@ -30,6 +33,10 @@ namespace elf
 #define ELF_PT_LOAD 1
 
 #define EI_NIDENT   16
+
+#define PF_R		0x4
+#define PF_W		0x2
+#define PF_X		0x1
 
 #pragma pack(push, 1)
 struct Elf32_Ehdr
@@ -81,14 +88,8 @@ struct Elf32_Shdr
 };
 #pragma pack(pop)
 
-struct Info
-{
-	uint32_t m_EntryPointAddr;
-	uint32_t m_InitialBreak;
-};
-
 bool isELF32(const uint8_t* ident);
-Info load(const uint8_t* data, Memory* mem);
+uint32_t load(const uint8_t* data, uint32_t baseAddr, riscv::MemoryMap* mm);
 }
 
 #endif

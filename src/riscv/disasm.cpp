@@ -1,5 +1,5 @@
 #include "cpu.h"
-#include "../memory.h"
+#include "memory_map.h"
 #include <bx/string.h>
 
 namespace riscv
@@ -272,7 +272,7 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 	}
 }
 
-void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t addr, char* buf, uint32_t len)
+void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 {
 	*buf = '\0';
 
@@ -294,10 +294,15 @@ void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t ad
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], rs1v,
-				memAddr, *memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0x000000FF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
+					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rs1], rs1v,
+					memAddr, val);
+			}
 		}
 		break;
 		case 1: // LH
@@ -305,20 +310,30 @@ void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t ad
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], rs1v,
-				memAddr, *(uint16_t*)memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
+					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rs1], rs1v,
+					memAddr, val);
+			}
 		}
 		break;
 		case 2: // LW
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], rs1v,
-				memAddr, *(uint32_t*)memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0xFFFFFFFF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
+					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rs1], rs1v,
+					memAddr, val);
+			}
 		}
 		break;
 		default:
@@ -372,30 +387,45 @@ void disasmGetInstrOperandValues(CPU* cpu, Memory* mem, uint32_t ir, uint32_t ad
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
-				s_RegABIName[instr.S.rs1], rs1v,
-				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
-				memAddr, *memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0x000000FF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
+					s_RegABIName[instr.S.rs1], rs1v,
+					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					memAddr, val);
+			}
 		}
 		break;
 		case 1: // SH
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
-				s_RegABIName[instr.S.rs1], rs1v,
-				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
-				memAddr, *(uint16_t*)memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
+					s_RegABIName[instr.S.rs1], rs1v,
+					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					memAddr, val);
+			}
 		}
 		break;
 		case 2: // SW
 		{
 			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
-			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
-				s_RegABIName[instr.S.rs1], rs1v,
-				s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
-				memAddr, *(uint32_t*)memVirtualToPhysical(mem, memAddr));
+			uint32_t val;
+			if (!mmRead(mm, memAddr, 0x0000FFFF, val)) {
+				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
+			} else {
+				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
+					s_RegABIName[instr.S.rs1], rs1v,
+					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					memAddr, val);
+			}
 		}
 		break;
 		default:

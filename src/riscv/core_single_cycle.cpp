@@ -1,5 +1,5 @@
 #include "cpu.h"
-#include "../memory.h"
+#include "memory_map.h"
 #include "../debug.h"
 #include "../syscall.h"
 #include <bx/bx.h>
@@ -7,7 +7,7 @@
 namespace riscv
 {
 #define SATP_MODE_MASK        0x80000000
-#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number (
+#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number
 
 #define PTE_PROTECTION_MASK   0x0000000E
 #define PTE_PROTECTION_SHIFT  1
@@ -32,65 +32,62 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 
 void cpuExecuteSystemCall(CPU* cpu)
 {
-	uint32_t sysCallID = cpuGetRegister(cpu, IReg::a7);
-	switch (sysCallID) {
-	case SYS_fstat:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1)));
-		break;
-	case SYS_brk:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_brk(cpuGetRegister(cpu, IReg::a0)));
-		break;
-	case SYS_close:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_close((int)cpuGetRegister(cpu, IReg::a0)));
-		break;
-	case SYS_lseek:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, IReg::a0), (size_t)cpuGetRegister(cpu, IReg::a1), (int)cpuGetRegister(cpu, IReg::a2)));
-		break;
-	case SYS_read:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_read((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
-		break;
-	case SYS_write:
-		cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_write((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
-		break;
-	case SYS_exit:
-		sys_exit((int)cpuGetRegister(cpu, IReg::a0));
-		break;
-	default:
-		RISCV_TRACE("0x%08X: ECALL a0=%08Xh, a1=%08Xh, a2=%08Xh, a3=%08Xh, a4=%08Xh, a5=%08Xh, a6=%08Xh, a7=%08Xh\n"
-			, cpuGetPC(cpu)
-			, cpuGetRegister(cpu, IReg::a0)
-			, cpuGetRegister(cpu, IReg::a1)
-			, cpuGetRegister(cpu, IReg::a2)
-			, cpuGetRegister(cpu, IReg::a3)
-			, cpuGetRegister(cpu, IReg::a4)
-			, cpuGetRegister(cpu, IReg::a5)
-			, cpuGetRegister(cpu, IReg::a6)
-			, cpuGetRegister(cpu, IReg::a7));
-		RISCV_CHECK(false, "Unknown syscall %08Xh", cpuGetRegister(cpu, IReg::a7));
-		break;
-	}
+	//uint32_t sysCallID = cpuGetRegister(cpu, IReg::a7);
+	//switch (sysCallID) {
+	//case SYS_fstat:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_fstat((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1)));
+	//	break;
+	//case SYS_brk:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_brk(cpuGetRegister(cpu, IReg::a0)));
+	//	break;
+	//case SYS_close:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_close((int)cpuGetRegister(cpu, IReg::a0)));
+	//	break;
+	//case SYS_lseek:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_lseek((int)cpuGetRegister(cpu, IReg::a0), (size_t)cpuGetRegister(cpu, IReg::a1), (int)cpuGetRegister(cpu, IReg::a2)));
+	//	break;
+	//case SYS_read:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_read((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
+	//	break;
+	//case SYS_write:
+	//	cpuSetRegister(cpu, IReg::a0, (uint32_t)sys_write((int)cpuGetRegister(cpu, IReg::a0), cpuGetRegister(cpu, IReg::a1), (size_t)cpuGetRegister(cpu, IReg::a2)));
+	//	break;
+	//case SYS_exit:
+	//	sys_exit((int)cpuGetRegister(cpu, IReg::a0));
+	//	break;
+	//default:
+	//	RISCV_TRACE("0x%08X: ECALL a0=%08Xh, a1=%08Xh, a2=%08Xh, a3=%08Xh, a4=%08Xh, a5=%08Xh, a6=%08Xh, a7=%08Xh\n"
+	//		, cpuGetPC(cpu)
+	//		, cpuGetRegister(cpu, IReg::a0)
+	//		, cpuGetRegister(cpu, IReg::a1)
+	//		, cpuGetRegister(cpu, IReg::a2)
+	//		, cpuGetRegister(cpu, IReg::a3)
+	//		, cpuGetRegister(cpu, IReg::a4)
+	//		, cpuGetRegister(cpu, IReg::a5)
+	//		, cpuGetRegister(cpu, IReg::a6)
+	//		, cpuGetRegister(cpu, IReg::a7));
+	//	RISCV_CHECK(false, "Unknown syscall %08Xh", cpuGetRegister(cpu, IReg::a7));
+	//	break;
+	//}
 }
 
-bool cpuMemRead32(CPU* cpu, Memory* mem, TLB* tlb, uint32_t virtualAddress, uint32_t& data)
+bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t& data, bool isInstruction)
 {
-	const uint32_t privLevel = (uint32_t)cpuGetPrivLevel(cpu);
-
 	if (tlb == nullptr) {
 		// Virtual address is the physical address.
-		data = memRead32(mem, virtualAddress, 0xFFFFFFFF, privLevel, true);
-		return true;
+		return mmRead(mm, virtualAddress, 0xFFFFFFFF, data);
 	}
 
 	// Memory read with a TLB
 	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
-	TLBLookupResult tlbResult = tlbLookup(&cpu->m_ITLB, virtualPageNumber);
+	TLBLookupResult tlbResult = tlbLookup(tlb, virtualPageNumber);
 	if (tlbResult.m_Hit) {
 		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
-		if ((pageProtectionFlags & (PROTECTION_READ | PROTECTION_EXECUTE)) != (PROTECTION_READ | PROTECTION_EXECUTE)) {
+		const uint32_t requiredProtectionFlags = PROTECTION_READ | (isInstruction ? PROTECTION_EXECUTE : 0);
+		if ((pageProtectionFlags & requiredProtectionFlags) != requiredProtectionFlags) {
 			const uint32_t offset = virtualAddress & kAddressOffsetMask;
 			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
-			data = memRead32(mem, physicalAddress, 0xFFFFFFFF, privLevel, true); // Move protection checks outside memRead32()
-			return true;
+			return mmRead(mm, physicalAddress, 0xFFFFFFFF, data);
 		} else {
 			RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
 		}
@@ -104,24 +101,26 @@ bool cpuMemRead32(CPU* cpu, Memory* mem, TLB* tlb, uint32_t virtualAddress, uint
 		if ((satp & SATP_MODE_MASK) == 0) {
 			// No translation needed
 			// TODO: Should this check be moved before TLB lookup?
-			data = memRead32(mem, virtualAddress, 0xFFFFFFFF, privLevel, true);
-			return true;
+			return mmRead(mm, virtualAddress, 0xFFFFFFFF, data);
 		} else {
 			// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
 			const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
 			const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
 			const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
 			PageTableEntry pte;
-			pte.m_Word = memRead32(mem, pageTableEntryPhysicalAddr, 0xFFFFFFFF, 3, false);
-			if (!pte.m_Fields.m_Valid) {
-				RISCV_CHECK(false, "Segmentation fault"); // TODO: Raise exception
-			} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
-				RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
+			if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+				RISCV_CHECK(false, "Failed to read physical address %08Xh", pageTableEntryPhysicalAddr);
 			} else {
-				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
-				tlbInsert(&cpu->m_ITLB, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+				if (!pte.m_Fields.m_Valid) {
+					RISCV_CHECK(false, "Segmentation fault"); // TODO: Raise exception
+				} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
+					RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
+				} else {
+					RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
+					tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
 
-				// Retry instruction on next tick.
+					// Retry instruction on next tick.
+				}
 			}
 		}
 	}
@@ -133,12 +132,10 @@ bool cpuMemRead32(CPU* cpu, Memory* mem, TLB* tlb, uint32_t virtualAddress, uint
 // A single read (read next instruction) and a single write (i.e. from store instructions) can be implemented
 // by using both the rising and falling edge of the clock. But a 2nd read (i.e. from load instructions) cannot
 // be implemented (requires a combinational read from memory; if at all possible).
-void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
+void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 {
-	const uint32_t privLevel = (uint32_t)cpuGetPrivLevel(cpu);
-
 	Instruction instr;
-	if (!cpuMemRead32(cpu, mem, &cpu->m_ITLB, cpuGetPC(cpu), instr.m_Word)) {
+	if (!cpuMemRead(cpu, mm, &cpu->m_ITLB, cpuGetPC(cpu), instr.m_Word, true)) {
 		return; // Exception or retry instruction after filling TLB.
 	}
 	
@@ -149,26 +146,29 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 	RISCV_CHECK((opcode & 3) == 3, "Invalid opcode");
 	switch (opcode) {
 	case Opcode::Load:
-		switch (instr.I.funct3) {
-		case 0: // LB
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x000000FF, privLevel, false), 7));
-			break;
-		case 1: // LH
-			cpuSetRegister(cpu, instr.I.rd, sext(memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x0000FFFF, privLevel, false), 15));
-			break;
-		case 2: // LW
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0xFFFFFFFF, privLevel, false));
-			break;
-		case 4: // LBU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x000000FF, privLevel, false));
-			break;
-		case 5: // LHU
-			cpuSetRegister(cpu, instr.I.rd, memRead32(mem, cpuGetRegister(cpu, instr.I.rs1) + immI(instr), 0x0000FFFF, privLevel, false));
-			break;
-		default:
+	{
+		const uint32_t loadSize = instr.I.funct3 & 0x03;
+		if (loadSize > 2) {
 			RISCV_CHECK(false, "Illegal instruction exception: Invalid load size (%01Xh)", instr.I.funct3);
-			break;
+		} else {
+			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << loadSize) << 3));
+			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.I.rs1) + immI(instr);
+
+			// TODO: Address translation
+			uint32_t val;
+			if (!mmRead(mm, virtualAddr, byteMask, val)) {
+				RISCV_CHECK(false, "Failed to read physical address %08Xh", virtualAddr);
+			} else {
+				const uint32_t zeroExtend = instr.I.funct3 & 0x04;
+				if (zeroExtend) {
+					cpuSetRegister(cpu, instr.I.rd, val);
+				} else {
+					const uint32_t signBitPos = ((1 << loadSize) << 3) - 1;
+					cpuSetRegister(cpu, instr.I.rd, sext(val, signBitPos));
+				}
+			}
 		}
+	}
 		break;
 	case Opcode::MiscMem:
 		// TODO: For now these are just NOPs.
@@ -216,20 +216,21 @@ void cpuTick_SingleCycle(CPU* cpu, Memory* mem)
 		cpuSetRegister(cpu, instr.U.rd, cpuGetPC(cpu) + immU(instr));
 		break;
 	case Opcode::Store:
-		switch (instr.S.funct3) {
-		case 0: // SB
-			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0x000000FF, privLevel);
-			break;
-		case 1: // SH
-			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0x0000FFFF, privLevel);
-			break;
-		case 2: // SW
-			memWrite32(mem, cpuGetRegister(cpu, instr.S.rs1) + immS(instr), cpuGetRegister(cpu, instr.S.rs2), 0xFFFFFFFF, privLevel);
-			break;
-		default:
-			RISCV_CHECK(false, "Illegal instruction exception: Invalid store width (%02Xh)", instr.S.funct3);
-			break;
+	{
+		const uint32_t storeSize = instr.S.funct3;
+		if (storeSize > 2) {
+			RISCV_CHECK(false, "Illegal instruction exception: Invalid store size (%01Xh)", instr.S.funct3);
+		} else {
+			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << storeSize) << 3));
+			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.S.rs1) + immS(instr);
+			const uint32_t val = cpuGetRegister(cpu, instr.S.rs2);
+
+			// TODO: Address translation
+			if (!mmWrite(mm, virtualAddr, byteMask, val)) {
+				RISCV_CHECK(false, "Failed to write physical address %08Xh", virtualAddr);
+			}
 		}
+	}
 		break;
 	case Opcode::Op:
 		switch (instr.R.funct3) {

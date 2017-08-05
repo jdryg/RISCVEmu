@@ -1,7 +1,7 @@
 #include "elf/parser.h"
 #include "riscv/cpu.h"
+#include "riscv/memory_map.h"
 #include "debugger.h"
-#include "memory.h"
 #include "syscall.h"
 #include "debug.h"
 
@@ -28,12 +28,16 @@
 #define UI_WIN_DEBUG       0x00000002
 #define UI_WIN_REGISTERS   0x00000004
 #define UI_WIN_BREAKPOINTS 0x00000008
+#define UI_WIN_TERMINAL    0x00000010
+
+#define KERNEL_BASE_ADDR   0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
+#define RAM_BASE_ADDR      0x00100000
 
 struct App
 {
 	GLFWwindow* m_GLFWWindow;
 	riscv::CPU* m_CPU;
-	Memory* m_RAM;
+	riscv::MemoryMap* m_MemoryMap;
 	Debugger* m_Dbg;
 
 	uint8_t* m_KernelELFData;
@@ -41,18 +45,18 @@ struct App
 	uint32_t m_KernelELFSize;
 	uint32_t m_ProgramELFSize;
 	int m_RAMSizeMB;
-	int m_StackSizeKB;
 	int m_InitError;
 	bool m_ScrollToPC;
 	uint32_t m_NumCPUSteps;
 	bool m_Run;
 
+	ImFont* m_MonoFont;
 	uint32_t m_WinVis;
 
-	App(uint32_t visibleWindows) 
+	App(uint32_t visibleWindows)
 		: m_GLFWWindow(nullptr)
 		, m_CPU(nullptr)
-		, m_RAM(nullptr)
+		, m_MemoryMap(nullptr)
 		, m_Dbg(nullptr)
 		, m_WinVis(visibleWindows)
 		, m_KernelELFData(nullptr)
@@ -61,10 +65,10 @@ struct App
 		, m_ProgramELFSize(0)
 		, m_InitError(INIT_ERR_SUCCESS)
 		, m_RAMSizeMB(4)
-		, m_StackSizeKB(128)
 		, m_ScrollToPC(true)
 		, m_NumCPUSteps(0)
 		, m_Run(false)
+		, m_MonoFont(nullptr)
 	{}
 
 	~App()
@@ -97,28 +101,29 @@ uint8_t* readFile(const char* filename, uint32_t& fileSize)
 int initEmulator(App* app)
 {
 	const uint32_t ramSize = (uint32_t)app->m_RAMSizeMB << 20;
-	const uint32_t stackSize = (uint32_t)app->m_StackSizeKB << 10;
 
-	Memory* mem = memCreate(ramSize);
-	if (!mem) {
+	// Create memory map
+	riscv::MemoryMap* mm = riscv::mmCreate();
+	
+	// Create devices
+	riscv::Device* ram = riscv::device::ramCreate(ramSize);
+	if (!ram) {
 		return INIT_ERR_NO_MEMORY;
 	}
 
-	// Create a RW region for the stack at the end of the address space
-	memAddRegion(mem, ramSize - stackSize, stackSize, RegionFlags::Read | RegionFlags::Write, 0);
+	riscv::mmMapDevice(mm, ram, RAM_BASE_ADDR, ramSize);
 
-	elf::Info elfInfo = elf::load(app->m_KernelELFData, mem);
-	if (elfInfo.m_EntryPointAddr == ~0u) {
+	// Load kernel into memory...
+	uint32_t entryPointAddr = elf::load(app->m_KernelELFData, KERNEL_BASE_ADDR, mm);
+	if (entryPointAddr == ~0u) {
 		return INIT_ERR_INVALID_ELF;
 	}
 
-	sys__init(mem, elfInfo.m_InitialBreak);
-
 	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));
-	riscv::cpuReset(cpu, elfInfo.m_EntryPointAddr, ramSize - 4);
+	riscv::cpuReset(cpu, entryPointAddr, ramSize - 4);
 
 	app->m_CPU = cpu;
-	app->m_RAM = mem;
+	app->m_MemoryMap = mm;
 	app->m_Dbg = dbgCreate();
 	app->m_ScrollToPC = true;
 
@@ -130,8 +135,8 @@ void shutdownEmulator(App* app)
 	free(app->m_CPU);
 	app->m_CPU = nullptr;
 
-	memDestroy(app->m_RAM);
-	app->m_RAM = nullptr;
+	riscv::mmDestroy(app->m_MemoryMap);
+	app->m_MemoryMap = nullptr;
 
 	dbgDestroy(app->m_Dbg);
 	app->m_Dbg = nullptr;
@@ -228,7 +233,6 @@ void doWin_Setup(App* app)
 		if (!app->m_CPU) {
 			if (ImGui::CollapsingHeader("System configuration")) {
 				ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
-				ImGui::SliderInt("Stack [KB]", &app->m_StackSizeKB, 8, 1024); // TODO: Should be handled by the Kernel/OS.
 			}
 		}
 
@@ -316,7 +320,8 @@ void doWin_Debugger(App* app)
 
 			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
 
-			const uint32_t numWords = app->m_RAM->m_Size / 4; // TODO: Disassemble only the .text section.
+			const uint32_t ramSize = 1 << 20;
+			const uint32_t numWords = ramSize / 4; // TODO: Disassemble only the .text section.
 			const uint32_t pc = cpuGetPC(app->m_CPU);
 
 			static float infoRegionHeight = 150.0f;
@@ -329,15 +334,10 @@ void doWin_Debugger(App* app)
 				float newScrollY = scrollY;
 				uint32_t scrollAddr = 4 * (uint32_t)bx::ffloor(scrollY / lineHeight);
 				uint32_t minAddr = scrollAddr;
-				uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
+				uint32_t maxAddr = bx::uint32_min(scrollAddr + numLinesVisible * 4, ramSize - 4);
 				if (app->m_ScrollToPC && (pc <= minAddr || pc >= maxAddr)) {
-//					if (pc < minAddr) {
-						minAddr = pc > 8 ? pc - 8 : 0;
-						maxAddr = bx::uint32_min(minAddr + numLinesVisible * 4, app->m_RAM->m_Size - 4);
-//					} else {
-//						maxAddr = bx::uint32_min(pc + 8, app->m_RAM->m_Size - 4);
-//						minAddr = maxAddr > numLinesVisible * 4 ? maxAddr - numLinesVisible * 4 : 0;
-//					}
+					minAddr = pc > 8 ? pc - 8 : 0;
+					maxAddr = bx::uint32_min(minAddr + numLinesVisible * 4, ramSize - 4);
 
 					newScrollY = (minAddr / 4) * lineHeight;
 				} else {
@@ -362,10 +362,14 @@ void doWin_Debugger(App* app)
 				ImGui::SetColumnOffset(1, 28.0f);
 
 				for (uint32_t addr = minAddr; addr <= maxAddr; addr += 4) {
-					uint32_t instr = *(uint32_t*)memVirtualToPhysical(app->m_RAM, addr);
-
 					char disasm[256];
-					riscv::disasmInstruction(instr, addr, disasm, 256);
+
+					uint32_t instr;
+					if (!riscv::mmRead(app->m_MemoryMap, addr, 0xFFFFFFFF, instr)) {
+						bx::snprintf(disasm, 256, "Unmapped memory location");
+					} else {
+						riscv::disasmInstruction(instr, addr, disasm, 256);
+					}
 
 					bool hasBP = dbgHasCodeBreakpoint(app->m_Dbg, addr);
 					if (ImGui::BreakpointButton(addr, hasBP)) {
@@ -416,8 +420,12 @@ void doWin_Debugger(App* app)
 			if (ImGui::BeginChild("##instrOperands", ImVec2(-1, -1), true)) {
 				char str[1024];
 
-				uint32_t nextInstr = *(uint32_t*)memVirtualToPhysical(app->m_RAM, pc);
-				riscv::disasmGetInstrOperandValues(app->m_CPU, app->m_RAM, nextInstr, pc, str, 1024);
+				uint32_t nextInstr;
+				if (!riscv::mmRead(app->m_MemoryMap, pc, 0xFFFFFFFF, nextInstr)) {
+					bx::snprintf(str, 1024, "Unmapped memory address");
+				} else {
+					riscv::disasmGetInstrOperandValues(app->m_CPU, app->m_MemoryMap, nextInstr, pc, str, 1024);
+				}
 
 				ImGui::TextWrapped(str);
 
@@ -524,6 +532,51 @@ void doWin_Breakpoints(App* app)
 	}
 }
 
+void doWin_Terminal(App* app)
+{
+	// TODO: Move to app
+	static char charBuffer[40 * 25]; // 320x200 character display
+	static bool initialized = false;
+	if (!initialized) {
+		memset(charBuffer, 0, sizeof(char) * 1000);
+
+		for (uint32_t i = 0; i < 25; ++i) {
+			bx::memCopy(&charBuffer[i * 40], "0123456789012345678901234567890123456789", 40);
+		}
+
+		initialized = true;
+	}
+
+	ImGui::SetNextWindowSize(ImVec2(355, 255), ImGuiSetCond_Always);
+	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
+	if (ImGui::Begin("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
+		if (ImGui::BeginChild("##console", ImVec2(-1.0f, -1.0f), true)) {
+			ImGui::PushFont(app->m_MonoFont);
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0));
+			for (uint32_t i = 0; i < 25; ++i) {
+				char row[256];
+				bx::memCopy(row, &charBuffer[i * 40], 40);
+				row[40] = '\0';
+				ImGui::Text(row);
+			}
+			ImGui::PopFont();
+			ImGui::PopStyleVar(1);
+			ImGui::EndChild();
+		}
+		ImGui::PopStyleVar(1);
+	}
+	ImGui::End();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_TERMINAL;
+	} else {
+		app->m_WinVis |= UI_WIN_TERMINAL;
+	}
+}
+
 void doUI(App* app)
 {
 	doMainMenu(app);
@@ -543,6 +596,8 @@ void doUI(App* app)
 	if (app->m_WinVis & UI_WIN_BREAKPOINTS) {
 		doWin_Breakpoints(app);
 	}
+
+	doWin_Terminal(app);
 }
 
 void glfw_errorCallback(int error, const char* description)
@@ -568,6 +623,10 @@ int main()
 	// Setup ImGui binding
 	ImGui_ImplGlfw_Init(app.m_GLFWWindow, true);
 
+	ImGuiIO& io = ImGui::GetIO();
+	io.Fonts->AddFontDefault();
+	app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f);
+
 	const ImVec4 clear_color = ImColor(114, 144, 154);
 
 	while (!glfwWindowShouldClose(app.m_GLFWWindow)) {
@@ -576,12 +635,12 @@ int main()
 
 		doUI(&app);
 
-		if (app.m_CPU && app.m_RAM) {
+		if (app.m_CPU && app.m_MemoryMap) {
 			if (app.m_NumCPUSteps != 0) {
 				uint32_t ns = app.m_NumCPUSteps;
 				bool breakpointReached = false;
 				while (ns-- > 0) {
-					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_RAM);
+					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_MemoryMap);
 					if (dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) {
 						breakpointReached = true;
 						break;

@@ -170,14 +170,16 @@
     <ClCompile Include="src\imgui\imgui_draw.cpp" />
     <ClCompile Include="src\imgui_impl_glfw.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\memory.cpp" />
     <ClCompile Include="src\nfd\nfd_common.c" />
     <ClCompile Include="src\nfd\nfd_win.cpp" />
     <ClCompile Include="src\riscv\core_single_cycle.cpp" />
     <ClCompile Include="src\riscv\cpu.cpp" />
     <ClCompile Include="src\riscv\disasm.cpp" />
+    <ClCompile Include="src\riscv\memory_map.cpp" />
     <ClCompile Include="src\riscv\tlb.cpp" />
-    <ClCompile Include="src\syscall.cpp" />
+    <ClCompile Include="src\syscall.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bx\include\bx\allocator.h" />
@@ -225,12 +227,14 @@
     <ClInclude Include="src\imgui\stb_truetype.h" />
     <ClInclude Include="src\imgui\widgets\breakpoint_button.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
-    <ClInclude Include="src\memory.h" />
     <ClInclude Include="src\nfd\common.h" />
     <ClInclude Include="src\nfd\nfd_common.h" />
     <ClInclude Include="src\riscv\cpu.h" />
+    <ClInclude Include="src\riscv\memory_map.h" />
     <ClInclude Include="src\riscv\tlb.h" />
-    <ClInclude Include="src\syscall.h" />
+    <ClInclude Include="src\syscall.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClInclude>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
