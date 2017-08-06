@@ -188,6 +188,9 @@ void doMainMenu(App* app)
 			if (ImGui::MenuItem("Breakpoints", nullptr)) {
 				app->m_WinVis |= UI_WIN_BREAKPOINTS;
 			}
+			if (ImGui::MenuItem("Terminal", nullptr)) {
+				app->m_WinVis |= UI_WIN_TERMINAL;
+			}
 
 			ImGui::EndMenu();
 		}
@@ -586,8 +589,8 @@ void doWin_Terminal(App* app)
 				| ImGuiInputTextFlags_EnterReturnsTrue
 				| (app->m_StdInInputForceUpdate ? ImGuiInputTextFlags_ReadOnly : 0);
 
-			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], 256, ImVec2(-1.0f, 0.0f), flags, nullptr, app)) {
-				const uint32_t len = (uint32_t)strlen(app->m_StdInBuffer);
+			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], BX_COUNTOF(app->m_StdInBuffer), ImVec2(-1.0f, 0.0f), flags, nullptr, app)) {
+				const uint32_t len = (uint32_t)bx::strLen(app->m_StdInBuffer);
 				app->m_StdInBuffer[len] = '\n';
 				app->m_StdInBuffer[len + 1] = '\0';
 			}
@@ -623,7 +626,9 @@ void doUI(App* app)
 		doWin_Breakpoints(app);
 	}
 
-	doWin_Terminal(app);
+	if (app->m_WinVis & UI_WIN_TERMINAL) {
+		doWin_Terminal(app);
+	}
 }
 
 void glfw_errorCallback(int error, const char* description)
@@ -673,11 +678,11 @@ int main()
 					}
 
 					// Transmit any data from stdin to the UART.
-					const uint32_t stdInBufLen = (uint32_t)strlen(app.m_StdInBuffer);
-					if (stdInBufLen != 0) {
+					if (app.m_StdInBuffer[0] != '\0') {
 						if (riscv::device::uartReceive(app.m_ConsoleUART, app.m_StdInBuffer[0])) {
 							// 1 character consumed by the CPU.
-							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], strlen(app.m_StdInBuffer));
+							const uint32_t stdInBufLen = (uint32_t)bx::strLen(app.m_StdInBuffer);
+							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], stdInBufLen);
 							app.m_StdInInputForceUpdate = true;
 						}
 					}
