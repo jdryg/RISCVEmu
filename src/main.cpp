@@ -59,7 +59,6 @@ struct App
 	ImFont* m_MonoFont;
 	char m_StdInBuffer[MAX_STDIN_BUFFER];
 	bool m_StdInInputForceUpdate;
-	bool m_StdInInputFlush;
 	uint32_t m_WinVis;
 
 	App(uint32_t visibleWindows)
@@ -81,7 +80,6 @@ struct App
 		, m_ConsoleUART(nullptr)
 		, m_Console(nullptr)
 		, m_StdInInputForceUpdate(false)
-		, m_StdInInputFlush(false)
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
 	}
@@ -557,21 +555,6 @@ void doWin_Breakpoints(App* app)
 	}
 }
 
-int consoleStdInCallback(ImGuiTextEditCallbackData* data)
-{
-	App* app = (App*)data->UserData;
-
-	if (app->m_StdInInputForceUpdate) {
-		bx::memCopy(&data->Buf[0], &data->Buf[1], data->BufTextLen);
-		data->BufDirty = true;
-		data->BufTextLen--;
-		data->CursorPos--;
-		app->m_StdInInputForceUpdate = false;
-	}
-
-	return 0;
-}
-
 void doWin_Terminal(App* app)
 {
 	ImGui::SetNextWindowSize(ImVec2(355, 280), ImGuiSetCond_Always);
@@ -599,13 +582,16 @@ void doWin_Terminal(App* app)
 			}
 			ImGui::PopStyleVar(1);
 
-			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], 256, ImVec2(-1.0f, 0.0f), ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_EnterReturnsTrue, consoleStdInCallback, app)) {
+			const uint32_t flags = ImGuiInputTextFlags_AllowTabInput
+				| ImGuiInputTextFlags_EnterReturnsTrue
+				| (app->m_StdInInputForceUpdate ? ImGuiInputTextFlags_ReadOnly : 0);
+
+			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], 256, ImVec2(-1.0f, 0.0f), flags, nullptr, app)) {
 				const uint32_t len = (uint32_t)strlen(app->m_StdInBuffer);
 				app->m_StdInBuffer[len] = '\n';
 				app->m_StdInBuffer[len + 1] = '\0';
-				app->m_StdInInputFlush = true;
-
 			}
+			app->m_StdInInputForceUpdate = false;
 		}
 	}
 	ImGui::End();
@@ -691,13 +677,8 @@ int main()
 					if (stdInBufLen != 0) {
 						if (riscv::device::uartReceive(app.m_ConsoleUART, app.m_StdInBuffer[0])) {
 							// 1 character consumed by the CPU.
-							if (app.m_StdInInputFlush) {
-								// InputText no longer has focus. Flush the buffer.
-								bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], strlen(app.m_StdInBuffer));
-							} else {
-								// InputText still has focus. Let the callback handle the text.
-								app.m_StdInInputForceUpdate = true;
-							}
+							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], strlen(app.m_StdInBuffer));
+							app.m_StdInInputForceUpdate = true;
 						}
 					}
 
