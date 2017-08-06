@@ -30,6 +30,8 @@ namespace riscv
 #define MSTATUS_MASK_SIE    0x00000002
 #define MSTATUS_MASK_UIE    0x00000001
 
+#define PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT 11
+
 inline bool csrIsReadOnly(uint32_t csr)
 {
 	return ((csr & CSR_RW_MASK) >> CSR_RW_SHIFT) == CSR_FLAG_RO;
@@ -105,6 +107,8 @@ uint32_t cpuGetPrivLevel(CPU* cpu)
 void cpuRaiseException(CPU* cpu, Exception::Enum cause)
 {
 	// TODO: Set mtval in case the exception has a valid value.
+	const uint32_t mstatus = cpu->m_State.m_CSR[CSR::mstatus];
+	cpuSetCSR(cpu, CSR::mstatus, (mstatus & ~MSTATUS_MASK_MPP) | (cpuGetPrivLevel(cpu) << PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT));
 	cpuSetCSR(cpu, CSR::mcause, (word_t)cause);
 	cpuSetCSR(cpu, CSR::mepc, cpuGetPC(cpu));
 	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mtvec));
@@ -114,7 +118,7 @@ void cpuRaiseException(CPU* cpu, Exception::Enum cause)
 void cpuReturnFromException(CPU* cpu)
 {
 	RISCV_CHECK(cpu->m_State.m_PrivLevel == PrivLevel::Machine, "Illegal instruction exception");
-	cpu->m_NextState.m_PrivLevel = PrivLevel::User;
+	cpu->m_NextState.m_PrivLevel = (PrivLevel::Enum)((cpuGetCSR(cpu, CSR::mstatus) & MSTATUS_MASK_MPP) >> PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT);
 	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mepc));
 }
 

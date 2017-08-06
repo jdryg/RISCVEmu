@@ -23,10 +23,16 @@ reset:
     # initialize stack pointer
     la sp, stack_top;
 
+    # store machine mode stack ptr to mscratch
+    csrw mscratch, sp;
+
     # continue initialization in C
     j _init
 
 trap:
+    # swap user mode stack ptr with mscratch
+    csrrw sp, mscratch, sp
+
     # allocate stack memory for 32 registers
     addi sp, sp, -128;
 
@@ -108,6 +114,9 @@ trap:
     # free allocated stack memory
     addi sp, sp, 128
 
+    # swap machine mode stack ptr with mscratch
+    csrrw sp, mscratch, sp
+    
     # return to user mode
     mret
 
@@ -116,4 +125,3 @@ trap:
 stack_bottom:
     .skip STACK_SIZE;
 stack_top:
-
