@@ -27,11 +27,12 @@
 #define INIT_ERR_NO_MEMORY   1
 #define INIT_ERR_INVALID_ELF 2
 
-#define UI_WIN_SETUP       0x00000001
-#define UI_WIN_DEBUG       0x00000002
-#define UI_WIN_REGISTERS   0x00000004
-#define UI_WIN_BREAKPOINTS 0x00000008
-#define UI_WIN_TERMINAL    0x00000010
+#define UI_WIN_SETUP          0x00000001
+#define UI_WIN_DEBUG          0x00000002
+#define UI_WIN_REGISTERS      0x00000004
+#define UI_WIN_BREAKPOINTS    0x00000008
+#define UI_WIN_TERMINAL       0x00000010
+#define UI_WIN_PERF_COUNTERS  0x00000020
 
 #define KERNEL_BASE_ADDR       0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
 #define RAM_BASE_ADDR          0x00100000
@@ -191,6 +192,9 @@ void doMainMenu(App* app)
 			if (ImGui::MenuItem("Terminal", nullptr)) {
 				app->m_WinVis |= UI_WIN_TERMINAL;
 			}
+			if (ImGui::MenuItem("Perf Counters", nullptr)) {
+				app->m_WinVis |= UI_WIN_PERF_COUNTERS;
+			}
 
 			ImGui::EndMenu();
 		}
@@ -254,7 +258,7 @@ void doWin_Setup(App* app)
 	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_SETUP) != 0;
-	if (ImGui::Begin("Setup", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Setup", &opened, ImGuiWindowFlags_ShowBorders)) {
 		if (!app->m_CPU) {
 			if (ImGui::CollapsingHeader("System configuration")) {
 				ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
@@ -292,7 +296,7 @@ void doWin_Setup(App* app)
 			}
 		}
 	}
-	ImGui::End();
+	ImGui::EndDock();
 
 	if (!opened) {
 		app->m_WinVis &= ~UI_WIN_SETUP;
@@ -307,7 +311,7 @@ void doWin_Debugger(App* app)
 	ImGui::SetNextWindowPos(ImVec2(350, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_DEBUG) != 0;
-	if (ImGui::Begin("Debugger", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Debugger", &opened, ImGuiWindowFlags_ShowBorders)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
@@ -459,7 +463,7 @@ void doWin_Debugger(App* app)
 			}
 		}
 	}
-	ImGui::End();
+	ImGui::EndDock();
 
 	if (!opened) {
 		app->m_WinVis &= ~UI_WIN_DEBUG;
@@ -474,45 +478,18 @@ void doWin_Registers(App* app)
 	ImGui::SetNextWindowPos(ImVec2(1130, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_REGISTERS) != 0;
-	if (ImGui::Begin("Registers", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Registers", &opened, ImGuiWindowFlags_ShowBorders)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
-			ImGui::TextWrapped("ra: %08Xh\tsp: %08Xh\tgp: %08Xh\ttp: %08Xh\tt0: %08Xh\tt1: %08Xh\tt2: %08Xh\ts0: %08Xh\ts1: %08Xh\ta0: %08Xh\ta1: %08Xh\ta2: %08Xh\ta3: %08Xh\ta4: %08Xh\ta5: %08Xh\ta6: %08Xh\ta7: %08Xh\ts2: %08Xh\ts3: %08Xh\ts4: %08Xh\ts5: %08Xh\ts6: %08Xh\ts7: %08Xh\ts8: %08Xh\ts9: %08Xh\ts10: %08Xh\ts11: %08Xh\tt3: %08Xh\tt4: %08Xh\tt5: %08Xh\tt6: %08Xh"
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::ra)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::sp)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::gp)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::tp)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t0)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t1)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t2)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s0)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s1)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a0)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a1)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a2)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a3)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a4)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a5)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a6)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::a7)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s2)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s3)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s4)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s5)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s6)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s7)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s8)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s9)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s10)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::s11)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t3)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t4)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t5)
-				, riscv::cpuGetRegister(app->m_CPU, riscv::IReg::t6));
+			for (uint32_t x = 1; x < 32; ++x) {
+				char str[256];
+				bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
+				ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+			}
 		}
 	}
-	ImGui::End();
+	ImGui::EndDock();
 
 	if (!opened) {
 		app->m_WinVis &= ~UI_WIN_REGISTERS;
@@ -527,7 +504,7 @@ void doWin_Breakpoints(App* app)
 	ImGui::SetNextWindowPos(ImVec2(1130, 460), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_BREAKPOINTS) != 0;
-	if (ImGui::Begin("Breakpoints", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Breakpoints", &opened, ImGuiWindowFlags_ShowBorders)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
@@ -549,7 +526,7 @@ void doWin_Breakpoints(App* app)
 			}
 		}
 	}
-	ImGui::End();
+	ImGui::EndDock();
 
 	if (!opened) {
 		app->m_WinVis &= ~UI_WIN_BREAKPOINTS;
@@ -564,7 +541,7 @@ void doWin_Terminal(App* app)
 	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
-	if (ImGui::Begin("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
+	if (ImGui::BeginDock("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
 		if (!app->m_Console) {
 			ImGui::Text("Emulator is not running");
 		} else {
@@ -597,12 +574,36 @@ void doWin_Terminal(App* app)
 			app->m_StdInInputForceUpdate = false;
 		}
 	}
-	ImGui::End();
+	ImGui::EndDock();
 
 	if (!opened) {
 		app->m_WinVis &= ~UI_WIN_TERMINAL;
 	} else {
 		app->m_WinVis |= UI_WIN_TERMINAL;
+	}
+}
+
+void doWin_PerfCounters(App* app)
+{
+	ImGui::SetNextWindowSize(ImVec2(350, 280), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
+
+	bool opened = (app->m_WinVis & UI_WIN_PERF_COUNTERS) != 0;
+	if (ImGui::BeginDock("Performance counters", &opened, ImGuiWindowFlags_ShowBorders)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			char str[256];
+			bx::snprintf(str, 256, "%I64u", riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::mcycle));
+			ImGui::InputTextEx("mcycle", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+		}
+	}
+	ImGui::EndDock();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_PERF_COUNTERS;
+	} else {
+		app->m_WinVis |= UI_WIN_PERF_COUNTERS;
 	}
 }
 
@@ -629,6 +630,10 @@ void doUI(App* app)
 	if (app->m_WinVis & UI_WIN_TERMINAL) {
 		doWin_Terminal(app);
 	}
+
+	if (app->m_WinVis & UI_WIN_PERF_COUNTERS) {
+		doWin_PerfCounters(app);
+	}
 }
 
 void glfw_errorCallback(int error, const char* description)
@@ -639,7 +644,7 @@ void glfw_errorCallback(int error, const char* description)
 
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL);
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL | UI_WIN_PERF_COUNTERS);
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
@@ -659,6 +664,8 @@ int main()
 	app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f);
 
 	const ImVec4 clear_color = ImColor(114, 144, 154);
+
+	ImGui::LoadDock();
 
 	while (!glfwWindowShouldClose(app.m_GLFWWindow)) {
 		glfwPollEvents();
@@ -715,9 +722,17 @@ int main()
 		glClear(GL_COLOR_BUFFER_BIT);
 		ImGui::Render();
 		glfwSwapBuffers(app.m_GLFWWindow);
+
+		if (ImGui::GetIO().DisplaySize.y > 0) {
+			ImVec2 pos = ImVec2(0, 20.0f);
+			ImVec2 size = ImGui::GetIO().DisplaySize;
+			size.y -= pos.y;
+			ImGui::RootDock(pos, size);
+		}
 	}
 
 	// Cleanup
+	ImGui::SaveDock();
 	ImGui_ImplGlfw_Shutdown();
 	glfwTerminate();
 

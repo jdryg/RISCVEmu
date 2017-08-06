@@ -169,7 +169,9 @@
     <ClCompile Include="src\elf\parser.cpp" />
     <ClCompile Include="src\imgui\imgui.cpp" />
     <ClCompile Include="src\imgui\imgui_draw.cpp" />
+    <ClCompile Include="src\imgui\widgets\imgui_dock.cpp" />
     <ClCompile Include="src\imgui_impl_glfw.cpp" />
+    <ClCompile Include="src\json\json.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\nfd\nfd_common.c" />
     <ClCompile Include="src\nfd\nfd_win.cpp" />
@@ -228,7 +230,9 @@
     <ClInclude Include="src\imgui\stb_textedit.h" />
     <ClInclude Include="src\imgui\stb_truetype.h" />
     <ClInclude Include="src\imgui\widgets\breakpoint_button.h" />
+    <ClInclude Include="src\imgui\widgets\imgui_dock.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
+    <ClInclude Include="src\json\json.h" />
     <ClInclude Include="src\nfd\common.h" />
     <ClInclude Include="src\nfd\nfd_common.h" />
     <ClInclude Include="src\riscv\cpu.h" />

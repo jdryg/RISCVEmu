@@ -117,4 +117,29 @@ void cpuReturnFromException(CPU* cpu)
 	cpu->m_NextState.m_PrivLevel = PrivLevel::User;
 	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mepc));
 }
+
+void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n)
+{
+	const uint64_t cnt = cpuGetCSR64(cpu, csrLow);
+	const uint64_t cntNew = cnt + n;
+	const uint32_t nl = (uint32_t)(cntNew & 0x00000000FFFFFFFF);
+	const uint32_t hi = (uint32_t)((cntNew & 0xFFFFFFFF00000000) >> 32);
+
+	cpuSetCSR(cpu, csrLow, nl);
+	cpuSetCSR(cpu, csrLow | 0x80, hi);
+}
+
+void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src)
+{
+	// NOTE: Don't call cpuSetCSR() because the shadowed CSRs might be marked as readonly.
+	cpu->m_NextState.m_CSR[dst] = cpuGetCSR(cpu, src);
+	cpu->m_NextState.m_CSR[dst | 0x80] = cpuGetCSR(cpu, src | 0x80);
+}
+
+uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow)
+{
+	const uint32_t l = cpuGetCSR(cpu, csrLow);
+	const uint32_t h = cpuGetCSR(cpu, csrLow | 0x80);
+	return (uint64_t)l | (((uint64_t)h) << 32);
+}
 }

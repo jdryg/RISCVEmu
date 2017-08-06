@@ -1,6 +1,3 @@
-#define IMGUI_DEFINE_MATH_OPERATORS
-#include "../imgui_internal.h"
-
 namespace ImGui 
 {
 // This is the same as ImGui::RadioButton() but without a label and slightly different styling

@@ -49,4 +49,7 @@ private:
 //#include "widgets/memory_editor.h"
 //#include "widgets/range_slider.h"
 //#include "widgets/log.h"
+#define IMGUI_DEFINE_MATH_OPERATORS
+#include "imgui_internal.h"
 #include "widgets/breakpoint_button.h"
+#include "widgets/imgui_dock.h"

@@ -342,6 +342,9 @@ void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val);
 uint32_t cpuGetPrivLevel(CPU* cpu);
 void cpuRaiseException(CPU* cpu, Exception::Enum cause);
 void cpuReturnFromException(CPU* cpu);
+void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n);
+void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src);
+uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);
@@ -350,6 +353,7 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mem);
 // disasm.cpp
 void disasmInstruction(uint32_t instr, uint32_t addr, char* buf, uint32_t len);
 void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mem, uint32_t instr, uint32_t addr, char* str, uint32_t len);
+const char* disasmGetRegisterABIName(uint32_t reg);
 }
 
 #endif

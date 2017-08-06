@@ -16,6 +16,10 @@ namespace riscv
 #define PROTECTION_WRITE      0x00000002
 #define PROTECTION_EXECUTE    0x00000004
 
+#define MCOUNTEREN_CY         0x00000001
+#define MCOUNTEREN_TM         0x00000002
+#define MCOUNTEREN_IR         0x00000004
+
 void cpuReset(CPU* cpu, word_t pc, word_t sp)
 {
 	tlbInit(&cpu->m_ITLB, 16);
@@ -27,6 +31,7 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 	bx::memSet(cpu->m_NextState.m_CSR, 0, sizeof(word_t) * 4096);
 	cpu->m_NextState.m_CSR[CSR::misa] = 0x40100100; // RV32IU
 	cpu->m_NextState.m_CSR[CSR::mimpid] = 0x00010000; // v1.0
+	cpu->m_NextState.m_CSR[CSR::mcounteren] = MCOUNTEREN_CY | MCOUNTEREN_IR; // TODO: Q: Should those be enabled by the kernel?
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
@@ -373,6 +378,17 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 	default:
 		cpuRaiseException(cpu, Exception::IllegalInstruction);
 		break;
+	}
+
+	// Update counters
+	const uint32_t countersEnabled = cpuGetCSR(cpu, CSR::mcounteren);
+	if (countersEnabled & MCOUNTEREN_CY) {
+		cpuIncCounter64(cpu, CSR::mcycle, 1);
+		cpuShadowCSR64(cpu, CSR::cycle, CSR::mcycle);
+	}
+	if (countersEnabled & MCOUNTEREN_IR) {
+		cpuIncCounter64(cpu, CSR::minstret, 1);
+		cpuShadowCSR64(cpu, CSR::instret, CSR::minstret);
 	}
 
 	// Switch states
