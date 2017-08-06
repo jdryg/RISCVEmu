@@ -250,7 +250,7 @@ void doWin_Setup_ELFFile(const char* str_id, char* filename, uint32_t len, uint8
 
 void doWin_Setup(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(350, 420), ImGuiSetCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_SETUP) != 0;
@@ -303,8 +303,8 @@ void doWin_Setup(App* app)
 
 void doWin_Debugger(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(500, 580), ImGuiSetCond_FirstUseEver);
-	ImGui::SetNextWindowPos(ImVec2(300, 20), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(780, 700), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(350, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_DEBUG) != 0;
 	if (ImGui::Begin("Debugger", &opened, ImGuiWindowFlags_ShowBorders)) {
@@ -470,8 +470,8 @@ void doWin_Debugger(App* app)
 
 void doWin_Registers(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
-	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(150, 445), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(1130, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_REGISTERS) != 0;
 	if (ImGui::Begin("Registers", &opened, ImGuiWindowFlags_ShowBorders)) {
@@ -523,8 +523,8 @@ void doWin_Registers(App* app)
 
 void doWin_Breakpoints(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiSetCond_FirstUseEver);
-	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(150, 260), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(1130, 460), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_BREAKPOINTS) != 0;
 	if (ImGui::Begin("Breakpoints", &opened, ImGuiWindowFlags_ShowBorders)) {
@@ -560,8 +560,8 @@ void doWin_Breakpoints(App* app)
 
 void doWin_Terminal(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(355, 280), ImGuiSetCond_Always);
-	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(350, 280), ImGuiSetCond_Always);
+	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
 	if (ImGui::Begin("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
@@ -639,7 +639,7 @@ void glfw_errorCallback(int error, const char* description)
 
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS);
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL);
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
