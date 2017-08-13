@@ -222,6 +222,7 @@
     <ClInclude Include="src\debug.h" />
     <ClInclude Include="src\debugger.h" />
     <ClInclude Include="src\elf\parser.h" />
+    <ClInclude Include="src\imgui\IconsFontAwesome.h" />
     <ClInclude Include="src\imgui\imconfig.h" />
     <ClInclude Include="src\imgui\imgui.h" />
     <ClInclude Include="src\imgui\imgui_internal.h" />
@@ -231,6 +232,7 @@
     <ClInclude Include="src\imgui\stb_truetype.h" />
     <ClInclude Include="src\imgui\widgets\breakpoint_button.h" />
     <ClInclude Include="src\imgui\widgets\imgui_dock.h" />
+    <ClInclude Include="src\imgui\widgets\imgui_memory_editor.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
     <ClInclude Include="src\json\json.h" />
     <ClInclude Include="src\nfd\common.h" />

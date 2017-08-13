@@ -13,6 +13,7 @@
 
 #define IMGUI_INCLUDE_IMGUI_USER_H
 #include "imgui/imgui.h"
+#include "imgui/IconsFontAwesome.h"
 #include "imgui_impl_glfw.h"
 #include <GLFW/glfw3.h>
 
@@ -21,22 +22,32 @@
 #include <malloc.h>
 #include <memory.h>
 
-#define MAX_STDIN_BUFFER 256
+#define MAX_STDIN_BUFFER       256
 
-#define INIT_ERR_SUCCESS     0
-#define INIT_ERR_NO_MEMORY   1
-#define INIT_ERR_INVALID_ELF 2
+#define INIT_ERR_SUCCESS       0
+#define INIT_ERR_NO_MEMORY     1
+#define INIT_ERR_INVALID_ELF   2
 
-#define UI_WIN_SETUP          0x00000001
-#define UI_WIN_DEBUG          0x00000002
-#define UI_WIN_REGISTERS      0x00000004
-#define UI_WIN_BREAKPOINTS    0x00000008
-#define UI_WIN_TERMINAL       0x00000010
-#define UI_WIN_PERF_COUNTERS  0x00000020
+#define UI_WIN_SETUP           0x00000001
+#define UI_WIN_DEBUG           0x00000002
+#define UI_WIN_REGISTERS       0x00000004
+#define UI_WIN_BREAKPOINTS     0x00000008
+#define UI_WIN_TERMINAL        0x00000010
+#define UI_WIN_PERF_COUNTERS   0x00000020
+#define UI_WIN_MEMORY_EDITOR   0x00000040
 
 #define KERNEL_BASE_ADDR       0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
 #define RAM_BASE_ADDR          0x00100000
 #define CONSOLE_UART_BASE_ADDR 0x80000000
+#define HDD_BASE_ADDR          0x80001000
+
+struct MemoryDeviceDesc
+{
+	uint8_t* m_DataPtr;
+	uint32_t m_BaseAddr;
+	uint32_t m_Size;
+	bool m_IsReadOnly;
+};
 
 struct App
 {
@@ -46,6 +57,8 @@ struct App
 	riscv::Device* m_ConsoleUART;
 	Console* m_Console;
 	Debugger* m_Dbg;
+	MemoryDeviceDesc* m_MemoryDevices;
+	uint32_t m_NumMemoryDevices;
 
 	uint8_t* m_KernelELFData;
 	uint8_t* m_ProgramELFData;
@@ -57,6 +70,9 @@ struct App
 	uint32_t m_NumCPUSteps;
 	bool m_Run;
 
+	MemoryEditor m_MemoryEditor;
+	int m_SelectedMemDevice;
+	char* m_MemDevicesComboStr;
 	ImFont* m_MonoFont;
 	char m_StdInBuffer[MAX_STDIN_BUFFER];
 	bool m_StdInInputForceUpdate;
@@ -81,6 +97,10 @@ struct App
 		, m_ConsoleUART(nullptr)
 		, m_Console(nullptr)
 		, m_StdInInputForceUpdate(false)
+		, m_MemoryDevices(nullptr)
+		, m_NumMemoryDevices(0)
+		, m_SelectedMemDevice(-1)
+		, m_MemDevicesComboStr(nullptr)
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
 	}
@@ -118,7 +138,13 @@ int initEmulator(App* app)
 
 	// Create memory map
 	riscv::MemoryMap* mm = riscv::mmCreate();
-	
+
+	// Load kernel into memory
+	uint32_t entryPointAddr = elf::load(app->m_KernelELFData, KERNEL_BASE_ADDR, mm);
+	if (entryPointAddr == ~0u) {
+		return INIT_ERR_INVALID_ELF;
+	}
+
 	// Create devices
 	riscv::Device* ram = riscv::device::ramCreate(ramSize);
 	if (!ram) {
@@ -132,21 +158,75 @@ int initEmulator(App* app)
 	}
 	riscv::mmMapDevice(mm, consoleUART, CONSOLE_UART_BASE_ADDR, riscv::device::kUARTMemorySize);
 
-	// Load kernel into memory...
-	uint32_t entryPointAddr = elf::load(app->m_KernelELFData, KERNEL_BASE_ADDR, mm);
-	if (entryPointAddr == ~0u) {
-		return INIT_ERR_INVALID_ELF;
+#if 0
+	riscv::Device* hdd = riscv::device::vhdCreate("./hdd.vhd"); // TODO: Configuration option
+	if (!hdd) {
+		return INIT_ERR_NO_MEMORY; // TODO: Different error?
 	}
+	riscv::mmMapDevice(mm, hdd, HDD_BASE_ADDR, riscv::device::kVHDMemorySize);
+#endif
 
+	// Initialize CPU
 	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));
 	riscv::cpuReset(cpu, entryPointAddr, ramSize - 4);
 
+	// Initialize app
 	app->m_CPU = cpu;
 	app->m_MemoryMap = mm;
 	app->m_ConsoleUART = consoleUART;
 	app->m_Console = consoleCreate(40, 25);
 	app->m_Dbg = dbgCreate();
 	app->m_ScrollToPC = true;
+	app->m_Run = false;
+	app->m_NumCPUSteps = 0;
+
+	// Scan memory map for memory devices
+	uint32_t numMemDevices = 0;
+	const uint32_t numDevices = riscv::mmGetNumDevices(mm);
+	for (uint32_t i = 0; i < numDevices; ++i) {
+		riscv::Device* dev = riscv::mmGetDeviceByID(mm, i);
+		RISCV_CHECK(dev != nullptr, "Invalid device returned by MemoryMap");
+		if (riscv::device::isMemory(dev)) {
+			++numMemDevices;
+		}
+	}
+
+	app->m_MemoryDevices = (MemoryDeviceDesc*)malloc(sizeof(MemoryDeviceDesc) * numMemDevices);
+	char* memDevicesStr = (char*)malloc(numMemDevices * 256);
+	char* dst = memDevicesStr;
+
+	// TODO: Sort devices by base address.
+	uint32_t nextMemDeviceID = 0;
+	for (uint32_t i = 0; i < numDevices; ++i) {
+		riscv::Device* dev = riscv::mmGetDeviceByID(mm, i);
+		if (riscv::device::isMemory(dev)) {
+			MemoryDeviceDesc* desc = &app->m_MemoryDevices[nextMemDeviceID++];
+			desc->m_BaseAddr = riscv::mmGetDeviceBaseAddr(mm, i);
+			desc->m_DataPtr = riscv::device::memGetDataPtr(dev);
+			desc->m_Size = riscv::device::memGetSize(dev);
+			desc->m_IsReadOnly = riscv::device::memIsReadOnly(dev);
+
+			char str[256];
+			bx::snprintf(str, 255, "%s [0x%08X - 0x%08X]", desc->m_IsReadOnly ? "ROM" : "RAM", desc->m_BaseAddr, desc->m_BaseAddr + desc->m_Size - 1);
+			
+			uint32_t len = bx::strLen(str);
+			memcpy(dst, str, len + 1);
+			dst += len + 1;
+		}
+	}
+
+	app->m_NumMemoryDevices = numMemDevices;
+
+	uint32_t len = (uint32_t)(dst - memDevicesStr);
+	app->m_MemDevicesComboStr = (char*)malloc(len + 2);
+	memcpy(app->m_MemDevicesComboStr, memDevicesStr, len);
+	app->m_MemDevicesComboStr[len] = '\0';
+	app->m_MemDevicesComboStr[len + 1] = '\0';
+	free(memDevicesStr);
+
+	app->m_SelectedMemDevice = 0;
+
+	app->m_MemoryEditor.OptAddrDigitsCount = 8;
 
 	return INIT_ERR_SUCCESS;
 }
@@ -155,6 +235,14 @@ void shutdownEmulator(App* app)
 {
 	free(app->m_CPU);
 	app->m_CPU = nullptr;
+
+	free(app->m_MemoryDevices);
+	app->m_MemoryDevices = nullptr;
+	app->m_NumMemoryDevices = 0;
+
+	free(app->m_MemDevicesComboStr);
+	app->m_MemDevicesComboStr = nullptr;
+	app->m_SelectedMemDevice = -1;
 
 	app->m_ConsoleUART = nullptr; // Will be destroyed in mmDestroy()
 
@@ -195,6 +283,9 @@ void doMainMenu(App* app)
 			if (ImGui::MenuItem("Perf Counters", nullptr)) {
 				app->m_WinVis |= UI_WIN_PERF_COUNTERS;
 			}
+			if (ImGui::MenuItem("Memory Editor", nullptr)) {
+				app->m_WinVis |= UI_WIN_MEMORY_EDITOR;
+			}
 
 			ImGui::EndMenu();
 		}
@@ -207,11 +298,11 @@ void doWin_Setup_ELFFile(const char* str_id, char* filename, uint32_t len, uint8
 {
 	ImGui::PushID(str_id);
 
-	ImGui::InputText("##ELF", filename, len, ImGuiInputTextFlags_ReadOnly);
+	ImGui::InputTextEx("##ELF", filename, len, editable ? ImVec2(-30.0f, 0.0f) : ImVec2(-1.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 
 	if (editable) {
 		ImGui::SameLine();
-		if (ImGui::Button("Browse...")) {
+		if (ImGui::Button(ICON_FA_FOLDER_OPEN)) {
 			nfdchar_t* outPath = nullptr;
 			nfdresult_t result = NFD_OpenDialog(nullptr, nullptr, &outPath);
 			if (result == NFD_OKAY) {
@@ -258,22 +349,25 @@ void doWin_Setup(App* app)
 	ImGui::SetNextWindowPos(ImVec2(0, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_SETUP) != 0;
-	if (ImGui::BeginDock("Setup", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Setup", &opened, 0)) {
 		if (!app->m_CPU) {
-			if (ImGui::CollapsingHeader("System configuration")) {
+			if (ImGui::CollapsingHeader("System configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::PushItemWidth(-60.0f);
 				ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
 			}
 		}
 
-		if (ImGui::CollapsingHeader("Kernel", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::CollapsingHeader("Kernel/BIOS", ImGuiTreeNodeFlags_DefaultOpen)) {
 			static char elfFilename[256] = { 0 }; // TODO: Move to App?
 			doWin_Setup_ELFFile("##kernel", elfFilename, 256, app->m_KernelELFData, app->m_KernelELFSize, !app->m_CPU);
 		}
 
+#if 0
 		if (ImGui::CollapsingHeader("Program", ImGuiTreeNodeFlags_DefaultOpen)) {
 			static char elfFilename[256] = { 0 }; // TODO: Move to App?
 			doWin_Setup_ELFFile("##program", elfFilename, 256, app->m_ProgramELFData, app->m_ProgramELFSize, !app->m_CPU);
 		}
+#endif
 
 		if (app->m_CPU) {
 			ImGui::Text("Emulator is currently running.");
@@ -311,50 +405,62 @@ void doWin_Debugger(App* app)
 	ImGui::SetNextWindowPos(ImVec2(350, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_DEBUG) != 0;
-	if (ImGui::BeginDock("Debugger", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Debugger", &opened, 0)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
-			// TODO: move those to a toolbar?
-			if (ImGui::Button("Go to PC")) {
-				app->m_ScrollToPC = true;
-			}
-			ImGui::SameLine();
 			if (app->m_Run) {
-				if (ImGui::Button("Break")) {
+				if (ImGui::Button(ICON_FA_STOP)) {
 					app->m_NumCPUSteps = 0;
 					app->m_Run = false;
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Break");
 				}
 			} else {
 				static int ticksPerFrame = 1;
 
-				if (ImGui::Button("Run")) {
+				if (ImGui::Button(ICON_FA_PLAY)) {
 					app->m_NumCPUSteps = ticksPerFrame;
 					app->m_Run = true;
 				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Run");
+				}
 
 				ImGui::SameLine();
-				if (ImGui::Button("Step 1")) {
+				if (ImGui::Button(ICON_FA_STEP_FORWARD)) {
 					app->m_NumCPUSteps = 1;
 				}
-
-				ImGui::SameLine();
-				if (ImGui::Button("Step 100")) {
-					app->m_NumCPUSteps = 100;
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Step x1");
 				}
 
 				ImGui::SameLine();
+				if (ImGui::Button(ICON_FA_FAST_FORWARD)) {
+					app->m_NumCPUSteps = 100;
+				}
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Step x100");
+				}
+
+				ImGui::SameLine();
+				ImGui::PushItemWidth(-80.0f);
 				ImGui::DragInt("Ticks/frame", &ticksPerFrame, 1.0f, 1, 10000);
+
+				if (ImGui::Button("Go to PC")) {
+					app->m_ScrollToPC = true;
+				}
 			}
 
 			const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
 
 			// TODO: Change scrolling to be able to see the whole address space.
 			const uint32_t ramSize = 1 << 20;
-			const uint32_t numWords = ramSize / 4; // TODO: Disassemble only the .text section.
+			const uint32_t numWords = ramSize / 4;
 			const uint32_t pc = cpuGetPC(app->m_CPU);
 
-			static float infoRegionHeight = 150.0f;
+			static float infoRegionHeight = 80.0f;
 			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
 			if (ImGui::BeginChild("##disasm", ImVec2(-1, -infoRegionHeight), true)) {
 				const float winHeight = ImGui::GetWindowHeight();
@@ -474,18 +580,29 @@ void doWin_Debugger(App* app)
 
 void doWin_Registers(App* app)
 {
+	const float fieldWidth = 110.0f;
+
 	ImGui::SetNextWindowSize(ImVec2(150, 445), ImGuiSetCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2(1130, 20), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_REGISTERS) != 0;
-	if (ImGui::BeginDock("Registers", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Registers", &opened, 0)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
-			for (uint32_t x = 1; x < 32; ++x) {
-				char str[256];
-				bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
-				ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+			const float winWidth = ImGui::GetWindowContentRegionWidth();
+			const uint32_t numFieldsPerLine = bx::uint32_max((uint32_t)floorf(winWidth / fieldWidth), 1);
+
+			for (uint32_t x = 1; x < 32;) {
+				for (uint32_t i = 0; i < numFieldsPerLine && x < 32; ++i, ++x) {
+					ImGui::SetCursorPosX(i * fieldWidth + ImGui::GetStyle().WindowPadding.x);
+
+					char str[256];
+					bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
+					ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+					ImGui::SameLine();
+				}
+				ImGui::NewLine();
 			}
 		}
 	}
@@ -504,7 +621,7 @@ void doWin_Breakpoints(App* app)
 	ImGui::SetNextWindowPos(ImVec2(1130, 460), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_BREAKPOINTS) != 0;
-	if (ImGui::BeginDock("Breakpoints", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Breakpoints", &opened, 0)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
@@ -541,7 +658,7 @@ void doWin_Terminal(App* app)
 	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
-	if (ImGui::BeginDock("Terminal", &opened, ImGuiWindowFlags_ShowBorders | ImGuiWindowFlags_NoResize)) {
+	if (ImGui::BeginDock("Terminal", &opened, 0 | ImGuiWindowFlags_NoResize)) {
 		if (!app->m_Console) {
 			ImGui::Text("Emulator is not running");
 		} else {
@@ -562,7 +679,8 @@ void doWin_Terminal(App* app)
 			}
 			ImGui::PopStyleVar(1);
 
-			const uint32_t flags = ImGuiInputTextFlags_AllowTabInput
+			const uint32_t flags = 0
+				| ImGuiInputTextFlags_AllowTabInput
 				| ImGuiInputTextFlags_EnterReturnsTrue
 				| (app->m_StdInInputForceUpdate ? ImGuiInputTextFlags_ReadOnly : 0);
 
@@ -570,6 +688,8 @@ void doWin_Terminal(App* app)
 				const uint32_t len = (uint32_t)bx::strLen(app->m_StdInBuffer);
 				app->m_StdInBuffer[len] = '\n';
 				app->m_StdInBuffer[len + 1] = '\0';
+
+				ImGui::SetKeyboardFocusHere();
 			}
 			app->m_StdInInputForceUpdate = false;
 		}
@@ -589,13 +709,17 @@ void doWin_PerfCounters(App* app)
 	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_PERF_COUNTERS) != 0;
-	if (ImGui::BeginDock("Performance counters", &opened, ImGuiWindowFlags_ShowBorders)) {
+	if (ImGui::BeginDock("Performance counters", &opened, 0)) {
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
 			char str[256];
-			bx::snprintf(str, 256, "%I64u", riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::mcycle));
+
+			bx::snprintf(str, 256, "%" PRIu64, riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::mcycle));
 			ImGui::InputTextEx("mcycle", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+
+			bx::snprintf(str, 256, "%" PRIu64, riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::minstret));
+			ImGui::InputTextEx("minstret", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 		}
 	}
 	ImGui::EndDock();
@@ -604,6 +728,30 @@ void doWin_PerfCounters(App* app)
 		app->m_WinVis &= ~UI_WIN_PERF_COUNTERS;
 	} else {
 		app->m_WinVis |= UI_WIN_PERF_COUNTERS;
+	}
+}
+
+void doWin_MemoryEditor(App* app)
+{
+	bool opened = (app->m_WinVis & UI_WIN_MEMORY_EDITOR) != 0;
+	if (ImGui::BeginDock("Memory Editor", &opened, ImGuiWindowFlags_NoScrollbar)) {
+		if (!app->m_MemoryDevices || !app->m_NumMemoryDevices) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			ImGui::PushItemWidth(240.0f);
+			ImGui::Combo("Device", &app->m_SelectedMemDevice, app->m_MemDevicesComboStr);
+
+			MemoryDeviceDesc* memDev = &app->m_MemoryDevices[app->m_SelectedMemDevice];
+			app->m_MemoryEditor.ReadOnly = memDev->m_IsReadOnly;
+			app->m_MemoryEditor.DrawContents(memDev->m_DataPtr, memDev->m_Size, memDev->m_BaseAddr);
+		}
+	}
+	ImGui::EndDock();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_MEMORY_EDITOR;
+	} else {
+		app->m_WinVis |= UI_WIN_MEMORY_EDITOR;
 	}
 }
 
@@ -634,6 +782,10 @@ void doUI(App* app)
 	if (app->m_WinVis & UI_WIN_PERF_COUNTERS) {
 		doWin_PerfCounters(app);
 	}
+
+	if (app->m_WinVis & UI_WIN_MEMORY_EDITOR) {
+		doWin_MemoryEditor(app);
+	}
 }
 
 void glfw_errorCallback(int error, const char* description)
@@ -642,9 +794,196 @@ void glfw_errorCallback(int error, const char* description)
 	printf("GLFW Error %d: %s\n", error, description);
 }
 
+#if 0
+#pragma pack(push, 1)
+struct PartitionTableEntry
+{
+	uint8_t m_Status;
+	uint8_t m_FirstHead;
+	uint16_t m_FirstSector : 5;
+	uint16_t m_FirstCylinder : 11;
+	uint8_t m_PartitionType;
+	uint8_t m_LastHead;
+	uint16_t m_LastSector : 5;
+	uint16_t m_LastCylinder : 11;
+	uint32_t m_FirstSectorLBA;
+	uint32_t m_NumSectors;
+};
+#pragma pack(pop)
+
+// https://staff.washington.edu/dittrich/misc/fatgen103.pdf
+#pragma pack(push, 1)
+struct BIOSParamBlock
+{
+	uint8_t m_JmpBoot[3]; // 0xE9 0xXX 0xXX
+	uint8_t m_OEMName[8];
+	uint16_t m_BytesPerSector;
+	uint8_t m_SectorsPerCluster;
+	uint16_t m_ReservedSectorCount;
+	uint8_t m_NumFATs;
+	uint16_t m_RootEntriesCount;
+	uint16_t m_TotalSectors16;
+	uint8_t m_Media;
+	uint16_t m_FATSize16;
+	uint16_t m_SectorsPerTrack;
+	uint16_t m_NumHeads;
+	uint32_t m_HiddenSectors;
+	uint32_t m_TotalSectors32;
+
+	union FAT {
+		struct FAT16
+		{
+			uint8_t m_DriveNumber;
+			uint8_t m_Reserved1;
+			uint8_t m_BootSig;
+			uint32_t m_VolID;
+			uint8_t m_VolLab[11];
+			uint8_t m_FileSysType[8];
+		} FAT16;
+
+		struct FAT32
+		{
+			uint32_t m_FATSize32;
+			uint16_t m_ExtFlags;
+			uint16_t m_FSVer;
+			uint32_t m_RootClus;
+			uint16_t m_FSInfo;
+			uint16_t m_BkBootSec;
+			uint8_t m_Reserved[8];
+			uint8_t m_DriveNumber;
+			uint8_t m_Reserved1;
+			uint8_t m_BootSig;
+			uint32_t m_VolID;
+			uint8_t m_VolLab[11];
+			uint8_t m_FileSysType[8];
+		} FAT32;
+	} FAT;
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct DirectoryEntry
+{
+	uint8_t m_Filename[8];
+	uint8_t m_Extension[3];
+	uint8_t m_Attrs;
+	uint8_t m_Reserved[10];
+	uint16_t m_LastUpdateTime;
+	uint16_t m_LastDateTime;
+	uint16_t m_StartClusterNumber;
+	uint32_t m_FileSize;
+};
+#pragma pack(pop)
+
+struct FATType
+{
+	enum Enum : uint32_t
+	{
+		FAT12 = 0,
+		FAT16 = 1,
+		FAT32 = 2,
+		Unknown = 0xFFFFFFFF
+	};
+};
+
+void vhdReadSector(riscv::Device* vhd, uint32_t lba, uint8_t* sectorData)
+{
+	uint16_t* dst = (uint16_t*)&sectorData[0];
+	vhd->write(vhd, 6 * sizeof(uint32_t), 0x000000FF, lba >> 24); // LBA[24:27]
+	vhd->write(vhd, 2 * sizeof(uint32_t), 0x000000FF, 1); // sector count
+	vhd->write(vhd, 3 * sizeof(uint32_t), 0x000000FF, lba & 0x000000FF); // LBA[0:7]
+	vhd->write(vhd, 4 * sizeof(uint32_t), 0x000000FF, (lba >> 8) & 0x000000FF); // LBA[8:15]
+	vhd->write(vhd, 5 * sizeof(uint32_t), 0x000000FF, (lba >> 16) & 0x000000FF); // LBA[16:23]
+	vhd->write(vhd, 7 * sizeof(uint32_t), 0x000000FF, 0x20); // READ SECTORS command
+	while (!(vhd->read(vhd, 7 * sizeof(uint32_t), 0x000000FF) & 0x08)); // Wait for the DRQ status bit.
+	for (uint32_t i = 0; i < 256; ++i) {
+		uint32_t halfWord = vhd->read(vhd, 0 * sizeof(uint32_t), 0x0000FFFF);
+		*dst++ = (uint16_t)halfWord;
+	}
+}
+
+void sectorFromCluster(uint32_t N, BIOSParamBlock* bpb, uint32_t& secNum, uint32_t& entOff)
+{
+	// Assume FAT16
+	const uint32_t FATOffset = N << 1;
+	secNum = bpb->m_ReservedSectorCount + (FATOffset / bpb->m_BytesPerSector);
+	entOff = FATOffset % bpb->m_BytesPerSector;
+}
+#endif // 0
+
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL | UI_WIN_PERF_COUNTERS);
+#if 0
+	// TEST/DEBUG
+	{
+		// VHD device test
+		riscv::Device* vhd = riscv::device::vhdCreate("./hdd.vhd");
+		if (!vhd) {
+			return -1;
+		}
+
+		// Read the first sector
+		uint8_t sector[512];
+		vhdReadSector(vhd, 0, sector);
+
+		// Search sector #0 for partition information...
+		PartitionTableEntry* pte = (PartitionTableEntry*)&sector[446];
+		if (pte->m_PartitionType != 0) {
+			// Not an empty partition.
+			// Read the first partition sector.
+			uint8_t bootSector[512];
+			vhdReadSector(vhd, pte->m_FirstSectorLBA, bootSector);
+
+			BIOSParamBlock* bpbc = (BIOSParamBlock*)&bootSector[0];
+
+			// FAT type determination (see pdf).
+			uint32_t rootDirSectors = ((bpbc->m_RootEntriesCount * 32) + (bpbc->m_BytesPerSector - 1)) / bpbc->m_BytesPerSector;
+			uint32_t FATsz = bpbc->m_FATSize16 != 0 ? bpbc->m_FATSize16 : bpbc->FAT.FAT32.m_FATSize32;
+			uint32_t totalSec = bpbc->m_TotalSectors16 != 0 ? bpbc->m_TotalSectors16 : bpbc->m_TotalSectors32;
+			uint32_t dataSec = totalSec - (bpbc->m_ReservedSectorCount + (bpbc->m_NumFATs * FATsz) + rootDirSectors);
+			uint32_t countOfClusters = dataSec / bpbc->m_SectorsPerCluster;
+
+			FATType::Enum fatType = FATType::Unknown;
+			if (countOfClusters < 4085) {
+				fatType = FATType::FAT12;
+			} else if (countOfClusters < 65525) {
+				fatType = FATType::FAT16;
+			} else {
+				fatType = FATType::FAT32;
+			}
+
+			uint32_t firstRootDirSectorRel = bpbc->m_ReservedSectorCount + (bpbc->m_NumFATs * FATsz);
+			uint32_t firstRootDirSectorAbs = pte->m_FirstSectorLBA + firstRootDirSectorRel ;
+
+			uint8_t rootDirSector[512];
+			vhdReadSector(vhd, firstRootDirSectorAbs, rootDirSector);
+
+			DirectoryEntry* de = (DirectoryEntry*)&rootDirSector[0];
+			de++; // Skip first entry.
+
+			// Assume FAT16 from now on
+			uint32_t sectorNumberRel, entOffset;
+			sectorFromCluster(de->m_StartClusterNumber, bpbc, sectorNumberRel, entOffset);
+
+			uint8_t fatSector[512];
+			vhdReadSector(vhd, pte->m_FirstSectorLBA + sectorNumberRel, fatSector);
+
+			uint16_t FAT16ClusEntryVal = *(uint16_t*)&fatSector[entOffset];
+
+			uint32_t firstDataSector = bpbc->m_ReservedSectorCount + (bpbc->m_NumFATs * FATsz) + rootDirSectors;
+			uint32_t firstSectorofCluster = ((FAT16ClusEntryVal - 2) * bpbc->m_SectorsPerCluster) + firstDataSector;
+
+			uint8_t fileDataSector[512];
+			vhdReadSector(vhd, pte->m_FirstSectorLBA + firstSectorofCluster, fileDataSector);
+
+			int a = 0;
+		}
+
+		riscv::device::destroy(vhd);
+	}
+#endif
+
+	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL | UI_WIN_PERF_COUNTERS | UI_WIN_MEMORY_EDITOR);
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
@@ -659,9 +998,22 @@ int main()
 	// Setup ImGui binding
 	ImGui_ImplGlfw_Init(app.m_GLFWWindow, true);
 
-	ImGuiIO& io = ImGui::GetIO();
-	io.Fonts->AddFontDefault();
-	app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f);
+	// Initialize extra fonts...
+	{
+		ImGuiIO& io = ImGui::GetIO();
+
+		// Default font
+		io.Fonts->AddFontDefault();
+
+		// Merge FontAwesome into default font
+		ImFontConfig config;
+		config.MergeMode = true;
+		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		io.Fonts->AddFontFromFileTTF("./fontawesome-webfont.ttf", 13.0f, &config, icon_ranges);
+
+		// Terminal font as separate font.
+		app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f);
+	}
 
 	const ImVec4 clear_color = ImColor(114, 144, 154);
 
