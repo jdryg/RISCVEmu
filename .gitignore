@@ -11,3 +11,8 @@
 /trace.txt
 /trace_regs.txt
 /trace_tranlated.txt
+/.vscode
+/bios/src/*.asm
+/bios/src/*.elfinfo
+/bios/src/*.o
+/bios/src/bios
