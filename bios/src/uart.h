@@ -11,7 +11,7 @@
 #define UART_STATUS_TXREADY 0x01
 #define UART_STATUS_RXFULL  0x02
 
-typedef struct
+typedef struct UART_t
 {
     uint32_t m_BaseAddr;
 } UART;

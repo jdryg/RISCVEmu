@@ -1,6 +1,8 @@
 #ifndef SYSCALL_H
 #define SYSCALL_H
 
+#include <sys/types.h>
+
 #define SYSCALL_CLOSE 0x39
 #define SYSCALL_LSEEK 0x3E
 #define SYSCALL_READ  0x3F

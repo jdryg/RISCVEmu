@@ -6,6 +6,8 @@ C_SRCS += ./main.c
 C_SRCS += ./init.c
 C_SRCS += ./syscall.c
 C_SRCS += ./uart.c
+C_SRCS += ./ram.c
+C_SRCS += ./exception_handler.c
 
 LINKER_SCRIPT := ./link.lds
 

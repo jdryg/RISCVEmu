@@ -12,7 +12,7 @@ reset:
     # initialize trap vector and machine mode CSRs
     la t0, trap;
     csrw mtvec, t0;
-    csrwi mstatus, 0;
+    csrwi mstatus, 0; # set MPP to U-mode. When mret is executed the machine will be put in U-mode.
     csrwi mideleg, 0;
     csrwi medeleg, 0;
     csrwi mie, 0;
@@ -30,9 +30,15 @@ reset:
     j _init
 
 trap:
+    li t1, 0x00001800;  # t1 = MPP bit mask
+    csrr t0, mstatus;   # t0 = mstatus
+    and t0, t0, t1;     # t0 = mstatus & MPP_BIT_MASK
+    bnez t0, save_regs; # if MPP field is not 0 (== U-mode) skip swapping stack spaces.
+
     # swap user mode stack ptr with mscratch
     csrrw sp, mscratch, sp
 
+save_regs:
     # allocate stack memory for 32 registers
     addi sp, sp, -128;
 
@@ -70,12 +76,12 @@ trap:
     sw x30, 120(sp);
     sw x31, 124(sp);
     
-    # call handle_trap(cause, epc, regs)
+    # call trapHandler(cause, epc, regs)
     csrr a0, mcause;
     csrr a1, mepc;
     mv a2, sp;
-    jal handle_trap;
-    csrw mepc, a0; # handle_trap retval is the new PC
+    jal trapHandler;
+    csrw mepc, a0; # trapHandler retval is the new PC
 
     # copy back registers from stack
 #   lw x0, 0(sp);
@@ -114,9 +120,14 @@ trap:
     # free allocated stack memory
     addi sp, sp, 128
 
+    csrr t0, mstatus;
+    and t0, t0, t1; # MPP field
+    bnez t0, end; # if MPP field is not 0 (== User mode) skip swapping stack spaces.
+
     # swap machine mode stack ptr with mscratch
     csrrw sp, mscratch, sp
-    
+
+end:
     # return to user mode
     mret
 
