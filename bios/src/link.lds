@@ -1,37 +1,47 @@
-OUTPUT_ARCH( "riscv" )
+OUTPUT_ARCH("riscv")
+
+ENTRY(_start)
+
+MEMORY
+{
+    ROM : ORIGIN = 0x00000200, LENGTH = 65024
+    RAM : ORIGIN = 0x00010000, LENGTH = 65536
+}
+REGION_ALIAS("REGION_TEXT", ROM);
+REGION_ALIAS("REGION_RODATA", ROM);
+REGION_ALIAS("REGION_DATA", RAM);
+REGION_ALIAS("REGION_BSS", RAM);
+REGION_ALIAS("REGION_STACK", RAM);
+
+stack_size = 4096;
 
 SECTIONS
 {
-    . = 0x00000200;
-    .text : 
-    {
-        entry.o(.text)
-        *(.text)
-    }
+    . = 0x200;
+    .text : {
+        *(.text*)
+    } > REGION_TEXT
 
-    /* Put initialized data into separate page */
-    . = ALIGN(0x1000);
+    .rodata : {
+        *(.rodata*)
+        rodata_end = .;
+    } > REGION_RODATA
 
-    /* data segment */
-    .data : { *(.data) }
+    .data : AT (rodata_end) {
+        data_start = .;
+        *(.data*)
+    } > REGION_DATA
+    data_size = SIZEOF(.data);
+    data_load_start = LOADADDR(.data);
 
-    .sdata : {
-        _gp = . + 0x800;
-        *(.srodata.cst16) *(.srodata.cst8) *(.srodata.cst4) *(.srodata.cst2)
-        *(.srodata*)
-        *(.sdata .sdata.* .gnu.linkonce.s.*)
-    }
+    .bss : {
+        *(.bss*)
+    } > REGION_BSS
 
-    . = ALIGN(4);
-    
-    /* bss segment */
-    .sbss : {
-        *(.sbss .sbss.* .gnu.linkonce.sb.*)
-        *(.scommon)
-    }
-    .bss : { *(.bss) }
-
-    /* End of uninitalized data segement */
-    _end = .;
-    _heap_end = .;
+    . = ALIGN(16);
+    .stack : {
+        __stack_start = .;
+        . = . + stack_size;
+        __stack_end = .;
+    } > REGION_STACK
 }

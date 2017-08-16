@@ -7,7 +7,20 @@ C_SRCS += ./init.c
 C_SRCS += ./syscall.c
 C_SRCS += ./uart.c
 C_SRCS += ./ram.c
+C_SRCS += ./hdd.c
 C_SRCS += ./exception_handler.c
+
+HEADERS += ./exception_handler.h
+HEADERS += ./hal.h
+HEADERS += ./hdd.h
+HEADERS += ./ram.h
+HEADERS += ./syscall.h
+HEADERS += ./uart.h
+
+C_SRCS += ./libc/memory.c
+C_SRCS += ./libc/printf.c
+HEADERS += ./libc/memory.h
+HEADERS += ./libc/printf.h
 
 LINKER_SCRIPT := ./link.lds
 
@@ -18,10 +31,10 @@ C_OBJS := $(patsubst %.c,%.o,$(C_SRCS))
 
 CC := riscv32-unknown-elf-gcc
 CFLAGS := -O2 -march=rv32i -fno-common -fno-jump-tables $(INCLUDES) $(C_DEFINES)
-LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -nostartfiles -lc -lgcc
+LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -nostartfiles -lgcc
 
 $(TARGET): $(ASM_OBJS) $(C_OBJS) $(LINKER_SCRIPT)
-	$(CC) $(CFLAGS) $(C_OBJS) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(ASM_OBJS) $(C_OBJS) -o $@ $(LDFLAGS)
 
 $(ASM_OBJS): %.o: %.S $(HEADERS)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -34,6 +47,6 @@ default: $(TARGET)
 all: default
 
 clean:
-	rm -f $(TARGET) *.o ./*.o
+	rm -f $(TARGET) *.o ./*.o ./libc/*.o
 
 .PHONY: clean all default

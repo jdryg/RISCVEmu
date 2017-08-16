@@ -13,7 +13,7 @@
 
 typedef struct UART_t
 {
-    uint32_t m_BaseAddr;
+	uint32_t m_BaseAddr;
 } UART;
 
 void uartInit(UART* uart, uint32_t baseAddr);
