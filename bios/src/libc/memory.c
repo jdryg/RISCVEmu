@@ -1,7 +1,7 @@
 #include "memory.h"
 #include <stdint.h>
 
-void* memcpy(void* dst, const void* src, size_t n)
+void* kmemcpy(void* dst, const void* src, size_t n)
 {
     uint8_t* dst8 = (uint8_t*)dst;
     const uint8_t* src8 = (const uint8_t*)src;
@@ -31,7 +31,7 @@ void* memcpy(void* dst, const void* src, size_t n)
     return dst;
 }
 
-void* memset(void* s, int c, size_t n)
+void* kmemset(void* s, int c, size_t n)
 {
     uint8_t* dst8 = (uint8_t*)s;
     uint8_t c8 = (uint8_t)c;

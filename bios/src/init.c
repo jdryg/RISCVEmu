@@ -4,6 +4,7 @@
 #include "ram.h"
 #include "hdd.h"
 #include "libc/printf.h"
+#include "libc/memory.h"
 
 #define PAGE_SIZE                      0x00001000
 
@@ -19,27 +20,40 @@ static void printf_putc(void* userData, char c)
 	sys_write(1, &c, 1);
 }
 
+void copyInitDataFromROMToRAM(void)
+{
+	extern uint8_t* data_start;
+	extern uint8_t* data_end;
+	extern uint8_t* data_load_start;
+
+	if (data_start != data_load_start) {
+		kmemcpy(data_start, data_load_start, (size_t)(data_end - data_start));
+	}
+}
+
 void _init()
 {
+	copyInitDataFromROMToRAM();
+
 	// Initialize console UART
 	extern UART g_ConsoleUART;
 	uartInit(&g_ConsoleUART, CONSOLE_UART_BASE_ADDRESS);
 
-	init_printf(0, printf_putc);
+	kprintfInit(0, printf_putc);
 
 	// Initialize RAM
-	printf("Initializing RAM...\n");
+	kprintf("Initializing RAM...\n");
 	ramInit(&g_RAM, RAM_BASE_ADDRESS, PAGE_SIZE);
-	printf("- Size: %u bytes\n", g_RAM.m_TotalSize);
+	kprintf("- Size: %u bytes\n", g_RAM.m_TotalSize);
 
 	// Initialize HDD
-	printf("Initializing HDD...\n", 20);
+	kprintf("Initializing HDD...\n", 20);
 	int hddErr = hddInit(&g_HDD, HDD_BASE_ADDRESS);
 	if(hddErr == HDD_SUCCESS) {
 		const uint32_t numPartitions = hddGetNumPartitions(&g_HDD);
 		for(uint32_t i = 0;i < numPartitions;++i) {
 			const uint32_t partitionSize = hddGetPartitionSize(&g_HDD, i);
-			printf("- Partition #%u: %u bytes\n", i, partitionSize);
+			kprintf("- Partition #%u: %u bytes\n", i, partitionSize);
 		}
 	} else {
 		const char* msg = "Unknown Error";
@@ -52,7 +66,7 @@ void _init()
 		} else if(hddErr == HDD_ERROR_INIT_PARTITION) {
 			msg = "Failed to initialize partition";
 		}
-		printf("- Error (%d): %s\n", hddErr, msg);
+		kprintf("- Error (%d): %s\n", hddErr, msg);
 	}
 
 	extern int main();

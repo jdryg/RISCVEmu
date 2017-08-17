@@ -165,7 +165,7 @@ int hddReadMBR(HDD* hdd)
 		return HDD_ERROR_NO_PARTITIONS;
 	}
 
-	memcpy(&hdd->m_PTE[0], pte, sizeof(PartitionTableEntry) * HDD_MAX_PARTITIONS);
+	kmemcpy(&hdd->m_PTE[0], pte, sizeof(PartitionTableEntry) * HDD_MAX_PARTITIONS);
 	hdd->m_NumPartitions = numPartitions;
 
 	return HDD_SUCCESS;
@@ -178,7 +178,7 @@ int hddInit(HDD* hdd, uint32_t baseAddr)
 	}
 
 	// Init struct with default values
-	memset(hdd, 0, sizeof(HDD));
+	kmemset(hdd, 0, sizeof(HDD));
 	hdd->m_BaseAddr = baseAddr;
 	hdd->readSector = hddReadSector;
 	hdd->writeSector = 0; // TODO: 

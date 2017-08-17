@@ -108,14 +108,14 @@ regs Kusti, 23.10.2004
 
 #include <stdarg.h>
 
-void init_printf(void* putp,void (*putf) (void*,char));
+void kprintfInit(void* putp,void (*putf) (void*,char));
 
-int printf(char *fmt, ...);
-int sprintf(char* s,char *fmt, ...);
+int kprintf(char *fmt, ...);
+int ksprintf(char* s,char *fmt, ...);
 
-int format(void* putp,void (*putf) (void*,char),char *fmt, va_list va);
+int kformat(void* putp,void (*putf) (void*,char),char *fmt, va_list va);
 
-int puts(const char *str);
+int kputs(const char *str);
 
 #endif
 

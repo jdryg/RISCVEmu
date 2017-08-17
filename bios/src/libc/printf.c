@@ -94,7 +94,7 @@ static void ui2a(unsigned int num, unsigned int base, int uc, char* bf)
 	*bf = 0;
 }
 
-static void i2a (int num, char* bf)
+static void i2a(int num, char* bf)
 {
 	if (num < 0) {
 		num = -num;
@@ -157,7 +157,7 @@ static void putchw(void* putp, putcf putf, int n, char z, char* bf)
 	}
 }
 
-int format(void* putp, putcf putf, char *fmt, va_list va)
+int kformat(void* putp, putcf putf, char *fmt, va_list va)
 {
 	char bf[12];
 	char ch;
@@ -248,17 +248,17 @@ abort:
 	return 0; // (JD) TODO: 
 }
 
-void init_printf(void* putp,void (*putf) (void*,char))
+void kprintfInit(void* putp,void (*putf) (void*,char))
 {
 	stdout_putf = putf;
 	stdout_putp = putp;
 }
 
-int printf(char *fmt, ...)
+int kprintf(char *fmt, ...)
 {
 	va_list va;
 	va_start(va, fmt);
-	int len = format(stdout_putp, stdout_putf, fmt, va);
+	int len = kformat(stdout_putp, stdout_putf, fmt, va);
 	va_end(va);
 
 	return len;
@@ -269,18 +269,18 @@ static void putcp(void* p,char c)
 	*(*((char**)p))++ = c;
 }
 
-int sprintf(char* s,char *fmt, ...)
+int ksprintf(char* s,char *fmt, ...)
 {
 	va_list va;
 	va_start(va,fmt);
-	int len = format(&s, putcp, fmt, va);
+	int len = kformat(&s, putcp, fmt, va);
 	putcp(&s,0);
 	va_end(va);
 
 	return len;
 }
 
-int puts(const char* str)
+int kputs(const char* str)
 {
 	char c;
 	while((c = *str++) != 0) {
