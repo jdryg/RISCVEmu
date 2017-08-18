@@ -29,8 +29,8 @@ OUTPUT_ARCH("riscv")
 ENTRY(_start)
 
 entry_point = 0x200;
-rom_size = 65536;  /* 64k ROM */
-ram_size = 131072; /* 128k RAM */
+rom_size = 64K;
+ram_size = 128K;
 ram_origin = rom_size; /* start immediatelly after the ROM */
 
 MEMORY
@@ -50,28 +50,28 @@ SECTIONS
 
     .rodata : {
         *(.rodata*)
-        rodata_end = .;
+        __rodata_end = .;
     } > ROM
 
     /* RAM */
-    .data : AT(rodata_end) {
-        data_load_start = LOADADDR(.data);
-        data_start = .;
+    .data : AT(__rodata_end) {
+        __data_load_start = LOADADDR(.data);
+        __data_start = .;
         *(.data*)
-        data_end = .;
     } > RAM
+    __data_size = SIZEOF(.data);
 
     .bss : {
+        __bss_start = .;
         *(.bss*)
+        *(.sbss*)
         *(COMMON)
     } > RAM
+    __bss_size = SIZEOF(.bss);
 
     .ram : {
-        . = ALIGN(16);
         __heap_start = .;
-        /* TODO: I don't know why I need to subtract 32 but if I don't .ram section doesn't fit in RAM region :| */
-        /* Probably due to alignment? */
-        . += ram_size - SIZEOF(.data) - SIZEOF(.bss) - 32;
+        . += ram_size - SIZEOF(.data) - SIZEOF(.bss);
         __stack_top = .;
     } > RAM
 }

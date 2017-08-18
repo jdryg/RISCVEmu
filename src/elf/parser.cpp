@@ -23,26 +23,6 @@ bool isELF32(const uint8_t* ident)
 	return true;
 }
 
-void load_segment(const uint8_t* data, const Elf32_Phdr* ph, riscv::MemoryMap* mm, uint32_t baseAddr)
-{
-	const uint32_t memsize = ph->p_memsz;
-	if (memsize == 0) {
-		return;
-	}
-
-	const uint32_t filesize = ph->p_filesz;
-	const uint32_t mempos = ph->p_vaddr;
-	const uint32_t filepos = ph->p_offset;
-
-	if (ph->p_flags & PF_W) {
-		riscv::Device* ram = riscv::device::ramCreate(memsize);
-		riscv::mmMapDevice(mm, ram, baseAddr + mempos, memsize);
-	} else {
-		riscv::Device* rom = riscv::device::romCreate(memsize, &data[filepos], filesize);
-		riscv::mmMapDevice(mm, rom, baseAddr + mempos, memsize);
-	}
-}
-
 uint32_t load(const uint8_t* data, uint32_t baseAddr, riscv::MemoryMap* mm)
 {
 	const Elf32_Ehdr* elf = (const Elf32_Ehdr*)data;
@@ -53,10 +33,44 @@ uint32_t load(const uint8_t* data, uint32_t baseAddr, riscv::MemoryMap* mm)
 		return ~0u;
 	}
 
+	// Collect all program headers with data in a single, continuous memory block (the ROM).
+	// NOTE: Assumes program headers are in ascending order wrt physical addresses.
+	uint32_t romSize = 0;
+	uint8_t* romData = nullptr;
 	const Elf32_Phdr* ph = (const Elf32_Phdr*)&data[elf->e_phoff];
 	for (uint32_t i = 0; i < elf->e_phnum; ++i) {
-		if (ph[i].p_type == ELF_PT_LOAD) {
-			load_segment(data, &ph[i], mm, baseAddr);
+		const Elf32_Phdr* curHeader = &ph[i];
+		if (curHeader->p_type == ELF_PT_LOAD) {
+			if (curHeader->p_paddr > romSize) {
+				const uint32_t emptySpace = curHeader->p_paddr - romSize;
+				romData = (uint8_t*)realloc(romData, romSize + emptySpace);
+				bx::memSet(&romData[romSize], 0, emptySpace);
+				romSize += emptySpace;
+			}
+
+			const uint32_t dataSize = curHeader->p_filesz;
+			const uint8_t* headerData = &data[curHeader->p_offset];
+			romData = (uint8_t*)realloc(romData, romSize + dataSize);
+			bx::memCopy(&romData[romSize], headerData, dataSize);
+			romSize += dataSize;
+		}
+	}
+
+	// Create the ROM
+	riscv::Device* rom = riscv::device::romCreate(romSize, romData, romSize);
+	riscv::mmMapDevice(mm, rom, baseAddr, romSize);
+
+	// Create all RAM sections (should be only 1).
+	ph = (const Elf32_Phdr*)&data[elf->e_phoff];
+	for (uint32_t i = 0; i < elf->e_phnum; ++i) {
+		if ((ph[i].p_type == ELF_PT_LOAD) && (ph[i].p_flags & PF_W)) {
+			const uint32_t memSize = ph[i].p_memsz;
+			if (memSize == 0) {
+				continue;
+			}
+
+			riscv::Device* ram = riscv::device::ramCreate(memSize);
+			riscv::mmMapDevice(mm, ram, baseAddr + ph[i].p_vaddr, memSize);
 		}
 	}
 	

@@ -79,8 +79,7 @@ bool mmRead(MemoryMap* mm, uint32_t addr, uint32_t byteMask, uint32_t& val)
 	DeviceDesc* dd = mm->m_Devices;
 	for (uint32_t i = 0; i < numDevices; ++i, ++dd) {
 		if (addr >= dd->m_StartAddr && addr <= dd->m_EndAddr) {
-			val = dd->m_Dev->read(dd->m_Dev, addr - dd->m_StartAddr, byteMask);
-			return true;
+			return dd->m_Dev->read(dd->m_Dev, addr - dd->m_StartAddr, byteMask, val);
 		}
 	}
 
@@ -93,8 +92,7 @@ bool mmWrite(MemoryMap* mm, uint32_t addr, uint32_t byteMask, uint32_t val)
 	DeviceDesc* dd = mm->m_Devices;
 	for (uint32_t i = 0; i < numDevices; ++i, ++dd) {
 		if (addr >= dd->m_StartAddr && addr <= dd->m_EndAddr) {
-			dd->m_Dev->write(dd->m_Dev, addr - dd->m_StartAddr, byteMask, val);
-			return true;
+			return dd->m_Dev->write(dd->m_Dev, addr - dd->m_StartAddr, byteMask, val);
 		}
 	}
 
@@ -161,17 +159,18 @@ bool memIsReadOnly(const Device* dev)
 }
 
 // RAM
-uint32_t ramRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
+bool ramRead(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t& val)
 {
 	Memory* ram = (Memory*)dev;
 
 	RISCV_CHECK(relAddr < ram->m_Size, "Invalid RAM relative address %08Xh. RAM size = %08Xh", relAddr, ram->m_Size);
 
-	uint32_t val = *(uint32_t*)&ram->m_Data[relAddr];
-	return val & byteMask;
+	val = *(uint32_t*)&ram->m_Data[relAddr];
+	val &= byteMask;
+	return true;
 }
 
-void ramWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
+bool ramWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 {
 	Memory* ram = (Memory*)dev;
 
@@ -181,6 +180,8 @@ void ramWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 
 	uint32_t oldVal = *wordPtr;
 	*wordPtr = (val & byteMask) | (oldVal & (~byteMask));
+
+	return true;
 }
 
 uint32_t ramGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
@@ -210,26 +211,30 @@ Device* ramCreate(uint32_t size)
 	ram->m_Data = ramData + sizeof(Memory);
 	ram->m_Size = size;
 
-	bx::memSet(ram->m_Data, 0, size);
+	// NOTE: Don't initialize RAM. The BIOS/kernel should handle zero initialization
+	// of all the sections needed to be initialized.
+//	bx::memSet(ram->m_Data, 0, size);
 
 	return ram;
 }
 
 // ROM
-uint32_t romRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
+bool romRead(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t& val)
 {
 	Memory* rom = (Memory*)dev;
 
 	RISCV_CHECK(relAddr < rom->m_Size, "Invalid ROM relative address %08Xh. ROM size = %08Xh", relAddr, rom->m_Size);
 
-	uint32_t val = *(uint32_t*)&rom->m_Data[relAddr];
-	return val & byteMask;
+	val = *(uint32_t*)&rom->m_Data[relAddr];
+	val &= byteMask;
+
+	return true;
 }
 
-void romWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
+bool romWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 {
 	BX_UNUSED(dev, relAddr, byteMask, val);
-	// Nop
+	return false;
 }
 
 uint32_t romGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
@@ -281,7 +286,7 @@ struct UART : public Device
 	uint32_t m_Regs[UART_NUM_REGS];
 };
 
-uint32_t uartRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
+bool uartRead(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t& val)
 {
 	UART* uart = (UART*)dev;
 	
@@ -295,11 +300,12 @@ uint32_t uartRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
 		uart->m_Regs[UART_REG_STATUS] &= ~UART_STATUS_RXFULL;
 	}
 
-	uint32_t val = uart->m_Regs[reg] & 0x000000FF; // 8-bit registers
-	return val & byteMask;
+	val = uart->m_Regs[reg] & 0x000000FF; // 8-bit registers
+	val &= byteMask;
+	return true;
 }
 
-void uartWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
+bool uartWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 {
 	UART* uart = (UART*)dev;
 
@@ -314,6 +320,8 @@ void uartWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 	}
 
 	uart->m_Regs[reg] = ((val & byteMask) & 0x000000FF);
+
+	return true;
 }
 
 uint32_t uartGet(Device* dev, uint32_t relAddr, uint32_t byteMask)
@@ -477,14 +485,14 @@ void vhdConvertFooterToHostEndian(VHDFooter* footer)
 	footer->m_Checksum = be2le_uint32(footer->m_Checksum);
 }
 
-uint32_t vhdRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
+bool vhdRead(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t& retVal)
 {
 	RISCV_CHECK(dev->m_Flags & DEV_FLAGS_VHD, "Not a virtual hard disk");
 
 	VHD* vhd = (VHD*)dev;
 
 	const uint32_t reg = relAddr >> 2;
-	uint32_t retVal = 0;
+	retVal = 0;
 	if (reg == VHD_REG_DRIVE) {
 		retVal = 0xA0 | ((vhd->m_LBA >> 24) & 0x0000000F);
 	} else if (reg == VHD_REG_ERROR_INFO) {
@@ -527,10 +535,12 @@ uint32_t vhdRead(Device* dev, uint32_t relAddr, uint32_t byteMask)
 		}
 	}
 
-	return retVal & byteMask;
+	retVal &= byteMask;
+
+	return true;
 }
 
-void vhdWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
+bool vhdWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 {
 	BX_UNUSED(byteMask);
 	RISCV_CHECK(dev->m_Flags & DEV_FLAGS_VHD, "Not a virtual hard disk");
@@ -590,6 +600,8 @@ void vhdWrite(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val)
 			}
 		}
 	}
+
+	return true;
 }
 
 uint32_t vhdGet(Device* dev, uint32_t relAddr, uint32_t byteMask)

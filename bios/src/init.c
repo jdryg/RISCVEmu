@@ -1,10 +1,9 @@
 #include <stdint.h>
-#include "syscall.h"
-#include "uart.h"
-#include "ram.h"
-#include "hdd.h"
-#include "libc/printf.h"
-#include "libc/memory.h"
+#include "syscall.h" // sys_write()
+#include "uart.h" // uartInit()
+#include "ram.h" // ramInit()
+#include "hdd.h" // hddInit()
+#include "libkernel/printf.h" // kprintfInit()/kprintf()
 
 #define PAGE_SIZE                      0x00001000
 
@@ -20,21 +19,8 @@ static void printf_putc(void* userData, char c)
 	sys_write(1, &c, 1);
 }
 
-void copyInitDataFromROMToRAM(void)
-{
-	extern uint8_t* data_start;
-	extern uint8_t* data_end;
-	extern uint8_t* data_load_start;
-
-	if (data_start != data_load_start) {
-		kmemcpy(data_start, data_load_start, (size_t)(data_end - data_start));
-	}
-}
-
 void _init()
 {
-	copyInitDataFromROMToRAM();
-
 	// Initialize console UART
 	extern UART g_ConsoleUART;
 	uartInit(&g_ConsoleUART, CONSOLE_UART_BASE_ADDRESS);

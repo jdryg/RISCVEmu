@@ -1,7 +1,6 @@
 #include "cpu.h"
 #include "memory_map.h"
 #include "../debug.h"
-#include "../syscall.h"
 #include <bx/bx.h>
 
 namespace riscv
@@ -312,7 +311,6 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 					if (cpuGetPrivLevel(cpu) == PrivLevel::User) {
 						cpuRaiseException(cpu, Exception::EnvCallFromUser);
 					} else {
-						RISCV_CHECK(false, "This should neven happen because the return of the syscall handler will call mret which return us to user mode.");
 						cpuRaiseException(cpu, Exception::EnvCallFromMachine);
 					}
 					break;

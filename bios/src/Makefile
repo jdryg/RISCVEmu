@@ -17,10 +17,10 @@ HEADERS += ./ram.h
 HEADERS += ./syscall.h
 HEADERS += ./uart.h
 
-C_SRCS += ./libc/memory.c
-C_SRCS += ./libc/printf.c
-HEADERS += ./libc/memory.h
-HEADERS += ./libc/printf.h
+C_SRCS += ./libkernel/memory.c
+C_SRCS += ./libkernel/printf.c
+HEADERS += ./libkernel/memory.h
+HEADERS += ./libkernel/printf.h
 
 LINKER_SCRIPT := ./link.lds
 
@@ -47,6 +47,6 @@ default: $(TARGET)
 all: default
 
 clean:
-	rm -f $(TARGET) *.o ./*.o ./libc/*.o
+	rm -f $(TARGET) *.o ./*.o ./libkernel/*.o
 
 .PHONY: clean all default

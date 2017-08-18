@@ -1,7 +1,7 @@
 #include "hdd.h"
-#include "exception_handler.h"
-#include "hal.h"
-#include "libc/memory.h"
+#include "exception_handler.h" // setTrapHandler()
+#include "hal.h" // halXXX()
+#include "libkernel/memory.h" // kmemset()/kmemcpy()
 
 #define HDD_REG_DATA            0
 #define HDD_REG_ERROR_INFO      1

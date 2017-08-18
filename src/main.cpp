@@ -3,7 +3,6 @@
 #include "riscv/memory_map.h"
 #include "console.h"
 #include "debugger.h"
-#include "syscall.h"
 #include "debug.h"
 
 #include <nfd/nfd.h>
@@ -158,13 +157,11 @@ int initEmulator(App* app)
 	}
 	riscv::mmMapDevice(mm, consoleUART, CONSOLE_UART_BASE_ADDR, riscv::device::kUARTMemorySize);
 
-#if 0
 	riscv::Device* hdd = riscv::device::vhdCreate("./hdd.vhd"); // TODO: Configuration option
 	if (!hdd) {
 		return INIT_ERR_NO_MEMORY; // TODO: Different error?
 	}
 	riscv::mmMapDevice(mm, hdd, HDD_BASE_ADDR, riscv::device::kVHDMemorySize);
-#endif
 
 	// Initialize CPU
 	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));

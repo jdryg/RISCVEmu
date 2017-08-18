@@ -11,9 +11,9 @@ struct Device
 {
 	uint32_t m_Flags;
 
-	uint32_t (*read)(Device* dev, uint32_t relAddr, uint32_t byteMask);
-	void (*write)(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val);
-	uint32_t(*get)(Device* dev, uint32_t relAddr, uint32_t byteMask); // Non-destructive read (see uartRead/uartGet for an example)
+	bool (*read)(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t& val);
+	bool (*write)(Device* dev, uint32_t relAddr, uint32_t byteMask, uint32_t val);
+	uint32_t (*get)(Device* dev, uint32_t relAddr, uint32_t byteMask); // Non-destructive read (see uartRead/uartGet for an example)
 };
 
 MemoryMap* mmCreate();

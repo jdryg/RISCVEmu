@@ -115,9 +115,20 @@ reset:
 	csrw mie, x0;
 	csrw mscratch, x0;
 
+	# copy initial values of initialized data from ROM to RAM
+	la a0, __data_start;
+	la a1, __data_load_start;
+	la a2, __data_size;
+	jal kmemcpy;
+
+	# zero-initialize .bss
+	la a0, __bss_start;
+	li a1, 0;
+	la a2, __bss_size;
+	jal kmemset;
+
 	# continue initialization in C
 	j _init;
-1:  j 1b; # Just in case _init returns :)
 
 # TODO: There's definitely something wrong with the code below and how frames are handled
 # in case of U->M traps and M->M traps but I'm too tired to figure it out atm :(

@@ -16,3 +16,4 @@
 /bios/src/*.elfinfo
 /bios/src/*.o
 /bios/src/bios
+/bios/src/libkernel/*.o
