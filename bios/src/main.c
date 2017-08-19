@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "libkernel/malloc.h"
 #include "libkernel/printf.h"
+#include "libkernel/string.h"
 
 #define KEY_LEFT_ARROW 1
 #define KEY_RIGHT_ARROW 4
@@ -9,6 +10,10 @@
 #define KEY_DELETE 127
 #define KEY_BACKSPACE 8
 #define KEY_ESCAPE 27
+#define KEY_TAB '\t'
+
+#define CONSOLE_COMMAND 0xFF
+#define CONSOLE_CMD_DEL_PREV 0
 
 char kgetchar()
 {
@@ -47,7 +52,13 @@ char* kgets(char* s)
 			// Send delete char command to console.
 			if(ch > s) {
 				--ch;
-				sys_write(1, &k, 1);
+
+				uint8_t consoleCmd[3] = {
+					CONSOLE_COMMAND,
+					CONSOLE_CMD_DEL_PREV,
+					1
+				};
+				sys_write(1, &consoleCmd[0], 3);
 			}
 			continue;
 		case KEY_ESCAPE:
@@ -64,18 +75,31 @@ char* kgets(char* s)
     }
 
     /* Null-terminating character added */
-    *ch = '\0';
-
+	*ch = '\0';
+	
+	k = '\n';
+	sys_write(1, &k, 1);
+	
     /* return original pointer */
-    return s; 
+    return s;
 }
 
 int main()
 {
 	char input[256];
-	kprintf("> ");
-	kgets(input);
-	kprintf("\nInput: %s\n", input);
+
+	while(1) {
+		kprintf("> ");
+		kgets(input);
+
+		if(input[0] == '\0') {
+			continue;
+		} else if(!kstrcmp(input, "exit")) {
+			break;
+		} else {
+			kprintf("Unknown command: %s\n", input);
+		}
+	}
 
 	return 0;
 }

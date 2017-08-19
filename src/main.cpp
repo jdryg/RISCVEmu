@@ -659,17 +659,32 @@ void doWin_Terminal(App* app)
 		if (!app->m_Console) {
 			ImGui::Text("Emulator is not running");
 		} else {
+			static float consoleCursorAnimTimer = 0.0f;
+			consoleCursorAnimTimer += ImGui::GetIO().DeltaTime;
+			const bool consoleCursorVisible = (consoleCursorAnimTimer <= 0.0f) || fmodf(consoleCursorAnimTimer, 1.20f) <= 0.80f;
+
 			const uint8_t* consoleBuffer = consoleGetBuffer(app->m_Console);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
 			if (ImGui::BeginChild("##console", ImVec2(-1.0f, -25.0f), true)) {
 				ImGui::PushFont(app->m_MonoFont);
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0));
+
+				ImVec2 cursor = ImGui::GetCursorScreenPos();
+				cursor += ImVec2(1.0f, 1.0f);
+
 				for (uint32_t i = 0; i < 25; ++i) {
 					char row[256];
 					bx::memCopy(row, &consoleBuffer[i * 40], 40);
 					row[40] = '\0';
 					ImGui::Text(row);
 				}
+
+				if (consoleCursorVisible) {
+					uint32_t cX, cY;
+					consoleGetCursorPos(app->m_Console, cX, cY);
+					ImGui::GetWindowDrawList()->AddRectFilled(cursor + ImVec2(cX * 8.0f, cY * 8.0f), cursor + ImVec2((cX + 1) * 8.0f, (cY + 1) * 8.0f), ImGui::GetColorU32(ImGuiCol_Text), 0.0f);
+				}
+
 				ImGui::PopFont();
 				ImGui::PopStyleVar(1);
 				ImGui::EndChild();

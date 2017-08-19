@@ -21,10 +21,12 @@ C_SRCS += ./libkernel/kernel.c
 C_SRCS += ./libkernel/memory.c
 C_SRCS += ./libkernel/printf.c
 C_SRCS += ./libkernel/malloc.c
+C_SRCS += ./libkernel/string.c
 HEADERS += ./libkernel/kernel.h
 HEADERS += ./libkernel/memory.h
 HEADERS += ./libkernel/printf.h
-HEADERs += ./libkernel/malloc.h
+HEADERS += ./libkernel/malloc.h
+HEADERS += ./libkernel/string.h
 
 LINKER_SCRIPT := ./link.lds
 

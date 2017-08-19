@@ -12,4 +12,6 @@ void consoleWrite(Console* con, uint8_t data);
 
 const uint8_t* consoleGetBuffer(Console* con);
 
+void consoleGetCursorPos(Console* con, uint32_t& x, uint32_t& y);
+
 #endif
