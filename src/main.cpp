@@ -676,19 +676,28 @@ void doWin_Terminal(App* app)
 			}
 			ImGui::PopStyleVar(1);
 
-			const uint32_t flags = 0
-				| ImGuiInputTextFlags_AllowTabInput
-				| ImGuiInputTextFlags_EnterReturnsTrue
-				| (app->m_StdInInputForceUpdate ? ImGuiInputTextFlags_ReadOnly : 0);
+			ImGui::PushFont(app->m_MonoFont);
+			ImGui::KeyboardInput("##stdin", &app->m_StdInBuffer[0], BX_COUNTOF(app->m_StdInBuffer), ImVec2(-30.0f, 19.0f), true);
+			ImGui::PopFont();
 
-			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], BX_COUNTOF(app->m_StdInBuffer), ImVec2(-1.0f, 0.0f), flags, nullptr, app)) {
-				const uint32_t len = (uint32_t)bx::strLen(app->m_StdInBuffer);
-				app->m_StdInBuffer[len] = '\n';
-				app->m_StdInBuffer[len + 1] = '\0';
-
-				ImGui::SetKeyboardFocusHere();
+			ImGui::SameLine();
+			if (ImGui::Button(ICON_FA_TRASH)) {
+				bx::memSet(app->m_StdInBuffer, 0, BX_COUNTOF(app->m_StdInBuffer));
 			}
-			app->m_StdInInputForceUpdate = false;
+
+//			const uint32_t flags = 0
+//				| ImGuiInputTextFlags_AllowTabInput
+//				| ImGuiInputTextFlags_EnterReturnsTrue
+//				| (app->m_StdInInputForceUpdate ? ImGuiInputTextFlags_ReadOnly : 0);
+//
+//			if (ImGui::InputTextEx("##stdin", &app->m_StdInBuffer[0], BX_COUNTOF(app->m_StdInBuffer), ImVec2(-1.0f, 0.0f), flags, nullptr, app)) {
+//				const uint32_t len = (uint32_t)bx::strLen(app->m_StdInBuffer);
+//				app->m_StdInBuffer[len] = '\n';
+//				app->m_StdInBuffer[len + 1] = '\0';
+//
+//				ImGui::SetKeyboardFocusHere();
+//			}
+//			app->m_StdInInputForceUpdate = false;
 		}
 	}
 	ImGui::EndDock();
@@ -1009,7 +1018,8 @@ int main()
 		io.Fonts->AddFontFromFileTTF("./fontawesome-webfont.ttf", 13.0f, &config, icon_ranges);
 
 		// Terminal font as separate font.
-		app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f);
+		static const ImWchar mono_ranges[] = { 1, 255, 0 };
+		app.m_MonoFont = io.Fonts->AddFontFromFileTTF("./Px437_IBM_CGA.ttf", 8.0f, nullptr, mono_ranges);
 	}
 
 	const ImVec4 clear_color = ImColor(114, 144, 154);
@@ -1039,7 +1049,7 @@ int main()
 							// 1 character consumed by the CPU.
 							const uint32_t stdInBufLen = (uint32_t)bx::strLen(app.m_StdInBuffer);
 							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], stdInBufLen);
-							app.m_StdInInputForceUpdate = true;
+//							app.m_StdInInputForceUpdate = true;
 						}
 					}
 

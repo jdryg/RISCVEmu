@@ -99,7 +99,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;_CRT_SECURE_NO_WARNINGS;__STDC_FORMAT_MACROS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;_CRT_SECURE_NO_WARNINGS;__STDC_FORMAT_MACROS;IMGUI_INCLUDE_IMGUI_USER_INL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)bx\include;$(SolutionDir)bx\include\compat\msvc;$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -232,6 +232,8 @@
     <ClInclude Include="src\imgui\stb_truetype.h" />
     <ClInclude Include="src\imgui\widgets\breakpoint_button.h" />
     <ClInclude Include="src\imgui\widgets\imgui_dock.h" />
+    <ClInclude Include="src\imgui\widgets\imgui_keyboard_input.h" />
+    <ClInclude Include="src\imgui\widgets\imgui_keyboard_input.inl" />
     <ClInclude Include="src\imgui\widgets\imgui_memory_editor.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
     <ClInclude Include="src\json\json.h" />
@@ -243,6 +245,9 @@
     <ClInclude Include="src\syscall.h">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\imgui\imgui_user.inl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

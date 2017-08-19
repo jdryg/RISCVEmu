@@ -41,6 +41,10 @@ void consoleWrite(Console* con, uint8_t data)
 		con->m_CursorPos -= con->m_CursorPos % con->m_NumCols;
 	} else if (data == '\t') {
 		con->m_CursorPos += 4;
+	} else if (data == 8) {
+		// BACKSPACE
+		// TODO: Check if char is TAB and remove 4 chars instead of 1
+		con->m_Buffer[--con->m_CursorPos] = ' ';
 	} else {
 		con->m_Buffer[con->m_CursorPos++] = data;
 	}

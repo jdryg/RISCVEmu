@@ -1,3 +1,5 @@
+// TODO: Cleanup and move to libkernel
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -12,7 +14,7 @@
 #undef errno
 int errno;
 
-UART g_ConsoleUART;
+extern UART g_ConsoleUART;
 
 void sys_write_hex(int fd, uint32_t hex)
 {

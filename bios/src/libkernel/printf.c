@@ -117,9 +117,9 @@ static int a2d(char ch)
 	return -1;
 }
 
-static char a2i(char ch, char** src, int base, int* nump)
+static char a2i(char ch, const char** src, int base, int* nump)
 {
-	char* p = *src;
+	const char* p = *src;
 	int num = 0;
 	int digit;
 
@@ -157,7 +157,7 @@ static void putchw(void* putp, putcf putf, int n, char z, char* bf)
 	}
 }
 
-int kformat(void* putp, putcf putf, char *fmt, va_list va)
+int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 {
 	char bf[12];
 	char ch;
@@ -248,13 +248,13 @@ abort:
 	return 0; // (JD) TODO: 
 }
 
-void kprintfInit(void* putp,void (*putf) (void*,char))
+void kprintfInit(void* putp,void (*putf)(void*, char))
 {
 	stdout_putf = putf;
 	stdout_putp = putp;
 }
 
-int kprintf(char *fmt, ...)
+int kprintf(const char *fmt, ...)
 {
 	va_list va;
 	va_start(va, fmt);
@@ -264,12 +264,12 @@ int kprintf(char *fmt, ...)
 	return len;
 }
 
-static void putcp(void* p,char c)
+static void putcp(void* p, char c)
 {
 	*(*((char**)p))++ = c;
 }
 
-int ksprintf(char* s,char *fmt, ...)
+int ksprintf(char* s, const char *fmt, ...)
 {
 	va_list va;
 	va_start(va,fmt);

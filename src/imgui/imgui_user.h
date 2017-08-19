@@ -54,3 +54,4 @@ private:
 #include "widgets/breakpoint_button.h"
 #include "widgets/imgui_dock.h"
 #include "widgets/imgui_memory_editor.h"
+#include "widgets/imgui_keyboard_input.h"

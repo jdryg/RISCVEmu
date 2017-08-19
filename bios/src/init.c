@@ -1,8 +1,9 @@
 #include <stdint.h>
-#include "syscall.h" // sys_write()
+#include "syscall.h" // sys_exit()
 #include "uart.h" // uartInit()
 #include "ram.h" // ramInit()
 #include "hdd.h" // hddInit()
+#include "libkernel/kernel.h" // kinit()
 #include "libkernel/printf.h" // kprintfInit()/kprintf()
 
 #define PAGE_SIZE                      0x00001000
@@ -11,21 +12,14 @@
 #define CONSOLE_UART_BASE_ADDRESS      0x80000000
 #define HDD_BASE_ADDRESS               0x80001000
 
-static RAM g_RAM;
-static HDD g_HDD;
-
-static void printf_putc(void* userData, char c)
-{
-	sys_write(1, &c, 1);
-}
+RAM g_RAM;
+HDD g_HDD;
+UART g_ConsoleUART;
 
 void _init()
 {
-	// Initialize console UART
-	extern UART g_ConsoleUART;
 	uartInit(&g_ConsoleUART, CONSOLE_UART_BASE_ADDRESS);
-
-	kprintfInit(0, printf_putc);
+	kinit(&g_ConsoleUART);
 
 	// Initialize RAM
 	kprintf("Initializing RAM...\n");
