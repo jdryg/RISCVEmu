@@ -1,8 +1,9 @@
 #include <stdint.h>
 #include "syscall.h" // sys_exit()
-#include "uart.h" // uartInit()
-#include "ram.h" // ramInit()
-#include "hdd.h" // hddInit()
+#include "file_system.h"
+#include "devices/uart.h" // uartInit()
+#include "devices/ram.h" // ramInit()
+#include "devices/hdd.h" // hddInit()
 #include "libkernel/kernel.h" // kinit()
 #include "libkernel/printf.h" // kprintfInit()/kprintf()
 
@@ -13,8 +14,10 @@
 #define HDD_BASE_ADDRESS               0x80001000
 
 RAM g_RAM;
-HDD g_HDD;
+struct HDD g_HDD;
 UART g_ConsoleUART;
+
+struct FileSystem* g_FS;
 
 void _init()
 {
@@ -31,9 +34,16 @@ void _init()
 	int hddErr = hddInit(&g_HDD, HDD_BASE_ADDRESS);
 	if(hddErr == HDD_SUCCESS) {
 		const uint32_t numPartitions = hddGetNumPartitions(&g_HDD);
+		kassert(numPartitions != 0, "No initialized partitions found");
+
 		for(uint32_t i = 0;i < numPartitions;++i) {
 			const uint32_t partitionSize = hddGetPartitionSize(&g_HDD, i);
 			kprintf("- Partition #%u: %u bytes\n", i, partitionSize);
+		}
+
+		g_FS = fsInit(&g_HDD, hddGetPartitionTableEntry(&g_HDD, 0));
+		if(g_FS == 0) {
+			kprintf("(x) Failed to initialize file system for partition #0\n");
 		}
 	} else {
 		const char* msg = "Unknown Error";

@@ -814,7 +814,7 @@ struct DockContext
 		case '1': return Slot_Left;
 		case '2': return Slot_Top;
 		case '3': return Slot_Bottom;
-		default: return Slot_Right;
+		default:  return Slot_Right;
 		}
 	}
 
@@ -825,13 +825,9 @@ struct DockContext
 		}
 
 		if (dock->parent->isHorizontal()) {
-			if (dock->pos.x < dock->parent->children[0]->pos.x) return '1';
-			if (dock->pos.x < dock->parent->children[1]->pos.x) return '1';
-			return '0';
+			return ((dock->pos.x < dock->parent->children[0]->pos.x) || (dock->pos.x < dock->parent->children[1]->pos.x)) ? '1' : '0';
 		} else {
-			if (dock->pos.y < dock->parent->children[0]->pos.y) return '2';
-			if (dock->pos.y < dock->parent->children[1]->pos.y) return '2';
-			return '3';
+			return ((dock->pos.y < dock->parent->children[0]->pos.y) || (dock->pos.y < dock->parent->children[1]->pos.y)) ? '2' : '3';
 		}
 	}
 
@@ -857,7 +853,10 @@ struct DockContext
 	bool begin(const char* label, bool* opened, ImGuiWindowFlags extra_flags)
 	{
 		Dock& dock = getDock(label, !opened || *opened);
-		if (!dock.opened && (!opened || *opened)) tryDockToStoredLocation(dock);
+		if (!dock.opened && (!opened || *opened)) {
+			tryDockToStoredLocation(dock);
+		}
+
 		dock.last_frame = ImGui::GetFrameCount();
 		if (strcmp(dock.label, label) != 0) {
 			MemFree(dock.label);
@@ -866,7 +865,10 @@ struct DockContext
 
 		m_end_action = EndAction_None;
 		
-		if (dock.first && opened) *opened = dock.opened;
+		if (dock.first && opened) {
+			*opened = dock.opened;
+		}
+
 		dock.first = false;
 		if (opened && !*opened) {
 			if (dock.status != Status_Float) {
@@ -883,18 +885,15 @@ struct DockContext
 		beginPanel();
 
 		m_current = &dock;
-		if (dock.status == Status_Dragged) handleDrag(dock);
+		if (dock.status == Status_Dragged) {
+			handleDrag(dock);
+		}
 
 		bool is_float = dock.status == Status_Float;
-
 		if (is_float) {
 			SetNextWindowPos(dock.pos);
 			SetNextWindowSize(dock.size);
-			bool ret = Begin(label,
-				opened,
-				dock.size,
-				-1.0f,
-				ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | extra_flags);
+			bool ret = Begin(label, opened, dock.size, -1.0f, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | extra_flags);
 			m_end_action = EndAction_End;
 			dock.pos = GetWindowPos();
 			dock.size = GetWindowSize();
@@ -909,7 +908,9 @@ struct DockContext
 			return ret;
 		}
 
-		if (!dock.active && dock.status != Status_Dragged) return false;
+		if (!dock.active && dock.status != Status_Dragged) {
+			return false;
+		}
 
 		m_end_action = EndAction_EndChild;
 
@@ -920,16 +921,22 @@ struct DockContext
 			fillLocation(dock);
 			*opened = false;
 		}
+
 		ImVec2 pos = dock.pos;
 		ImVec2 size = dock.size;
 		pos.y += tabbar_height + GetStyle().WindowPadding.y;
 		size.y -= tabbar_height + GetStyle().WindowPadding.y;
 
 		SetCursorScreenPos(pos);
-		ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-			extra_flags;
+		ImGuiWindowFlags flags = 0 
+			| ImGuiWindowFlags_NoTitleBar 
+			| ImGuiWindowFlags_NoResize 
+			| ImGuiWindowFlags_NoMove 
+			| ImGuiWindowFlags_NoCollapse 
+			| ImGuiWindowFlags_NoSavedSettings 
+			| ImGuiWindowFlags_NoBringToFrontOnFocus 
+			| extra_flags;
+
 		char tmp[256];
 		strcpy(tmp, label);
 		strcat(tmp, "_docked"); // to avoid https://github.com/ocornut/imgui/issues/713
@@ -950,8 +957,12 @@ struct DockContext
 			PopStyleColor();
 			PopStyleColor();
 		}
+
 		m_current = nullptr;
-		if (m_end_action > EndAction_None) endPanel();
+		
+		if (m_end_action > EndAction_None) {
+			endPanel();
+		}
 	}
 
 	int getDockIndex(Dock* dock)
@@ -959,10 +970,13 @@ struct DockContext
 		if (!dock) return -1;
 
 		for (int i = 0; i < m_docks.size(); ++i) {
-			if (dock == m_docks[i]) return i;
+			if (dock == m_docks[i]) {
+				return i;
+			}
 		}
 
 		IM_ASSERT(false);
+
 		return -1;
 	}
 		
@@ -1135,27 +1149,27 @@ struct DockContext
 };
 
 static DockContext g_dock;
-void Print()
-{
-	for (int i = 0; i < g_dock.m_docks.size(); ++i) {
-		ImGui::Text("i=%d this=0x%.8p state=(%d %d) pos=(%.0f %.0f) size=(%.0f %.0f) children=(%s %s) tabs=(%s %s) parent=%s status=%d  location='%s' label='%s'\n", i,
-			(void*)g_dock.m_docks[i],
-			g_dock.m_docks[i]->active,
-			g_dock.m_docks[i]->opened,
-			g_dock.m_docks[i]->pos.x,
-			g_dock.m_docks[i]->pos.y,
-			g_dock.m_docks[i]->size.x,
-			g_dock.m_docks[i]->size.y,
-			g_dock.m_docks[i]->children[0] ? g_dock.m_docks[i]->children[0]->label : "None",
-			g_dock.m_docks[i]->children[1] ? g_dock.m_docks[i]->children[1]->label : "None",
-			g_dock.m_docks[i]->prev_tab ? g_dock.m_docks[i]->prev_tab->label : "None",
-			g_dock.m_docks[i]->next_tab ? g_dock.m_docks[i]->next_tab->label : "None",
-			g_dock.m_docks[i]->parent ? g_dock.m_docks[i]->parent->label : "None",
-			g_dock.m_docks[i]->status,
-			g_dock.m_docks[i]->location,
-			g_dock.m_docks[i]->label);
-	}
-}
+//void Print()
+//{
+//	for (int i = 0; i < g_dock.m_docks.size(); ++i) {
+//		ImGui::Text("i=%d this=0x%.8p state=(%d %d) pos=(%.0f %.0f) size=(%.0f %.0f) children=(%s %s) tabs=(%s %s) parent=%s status=%d  location='%s' label='%s'\n", i,
+//			(void*)g_dock.m_docks[i],
+//			g_dock.m_docks[i]->active,
+//			g_dock.m_docks[i]->opened,
+//			g_dock.m_docks[i]->pos.x,
+//			g_dock.m_docks[i]->pos.y,
+//			g_dock.m_docks[i]->size.x,
+//			g_dock.m_docks[i]->size.y,
+//			g_dock.m_docks[i]->children[0] ? g_dock.m_docks[i]->children[0]->label : "None",
+//			g_dock.m_docks[i]->children[1] ? g_dock.m_docks[i]->children[1]->label : "None",
+//			g_dock.m_docks[i]->prev_tab ? g_dock.m_docks[i]->prev_tab->label : "None",
+//			g_dock.m_docks[i]->next_tab ? g_dock.m_docks[i]->next_tab->label : "None",
+//			g_dock.m_docks[i]->parent ? g_dock.m_docks[i]->parent->label : "None",
+//			g_dock.m_docks[i]->status,
+//			g_dock.m_docks[i]->location,
+//			g_dock.m_docks[i]->label);
+//	}
+//}
 
 void ShutdownDock()
 {

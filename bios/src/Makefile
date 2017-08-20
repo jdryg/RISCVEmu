@@ -5,17 +5,20 @@ ASM_SRCS += ./entry.S
 C_SRCS += ./main.c
 C_SRCS += ./init.c
 C_SRCS += ./syscall.c
-C_SRCS += ./uart.c
-C_SRCS += ./ram.c
-C_SRCS += ./hdd.c
 C_SRCS += ./exception_handler.c
+C_SRCS += ./file_system.c
 
 HEADERS += ./exception_handler.h
-HEADERS += ./hal.h
-HEADERS += ./hdd.h
-HEADERS += ./ram.h
 HEADERS += ./syscall.h
-HEADERS += ./uart.h
+HEADERS += ./file_system.h
+
+C_SRCS += ./devices/uart.c
+C_SRCS += ./devices/ram.c
+C_SRCS += ./devices/hdd.c
+HEADERS += ./devices/hal.h
+HEADERS += ./devices/hdd.h
+HEADERS += ./devices/ram.h
+HEADERS += ./devices/uart.h
 
 C_SRCS += ./libkernel/kernel.c
 C_SRCS += ./libkernel/memory.c
@@ -53,6 +56,6 @@ default: $(TARGET)
 all: default
 
 clean:
-	rm -f $(TARGET) *.o ./*.o ./libkernel/*.o
+	rm -f $(TARGET) *.o ./*.o ./libkernel/*.o ./devices/*.o
 
 .PHONY: clean all default

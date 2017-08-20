@@ -168,6 +168,7 @@
     <ClCompile Include="src\debugger.cpp" />
     <ClCompile Include="src\elf\parser.cpp" />
     <ClCompile Include="src\imgui\imgui.cpp" />
+    <ClCompile Include="src\imgui\imgui_demo.cpp" />
     <ClCompile Include="src\imgui\imgui_draw.cpp" />
     <ClCompile Include="src\imgui\widgets\imgui_dock.cpp" />
     <ClCompile Include="src\imgui_impl_glfw.cpp" />

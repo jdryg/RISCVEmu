@@ -63,7 +63,7 @@ int hddIsConnected(uint32_t baseAddr)
 	return g_HDDTrapTriggered == 0 ? 1 : 0;
 }
 
-void hddReadSector(HDD* hdd, uint32_t lba, uint8_t* sectorData)
+void hddReadSector(struct HDD* hdd, uint32_t lba, uint8_t* sectorData)
 {
 	const uint32_t baseAddr = hdd->m_BaseAddr;
 
@@ -79,11 +79,12 @@ void hddReadSector(HDD* hdd, uint32_t lba, uint8_t* sectorData)
 	while (!(hddReadReg8(baseAddr, HDD_REG_COMMAND_STATUS) & 0x08));
 
 	for (uint32_t i = 0; i < 256; ++i) {
-		uint32_t halfWord = hddReadReg16(baseAddr, HDD_REG_DATA);
-		*dst++ = (uint16_t)halfWord;
+		uint16_t halfWord = hddReadReg16(baseAddr, HDD_REG_DATA);
+		*dst++ = halfWord;
 	}
 }
 
+/*
 int hddInitPartition(HDD* hdd, uint32_t partitionID)
 {
 	if(partitionID >= HDD_MAX_PARTITIONS) {
@@ -139,8 +140,9 @@ int hddInitPartition(HDD* hdd, uint32_t partitionID)
 
 	return fatType == FAT_TYPE_FAT16 ? HDD_SUCCESS : HDD_ERROR_UNSUPPORTED_FS;
 }
+*/
 
-int hddReadMBR(HDD* hdd)
+int hddReadMBR(struct HDD* hdd)
 {
 	uint8_t sector[512];
 	hddReadSector(hdd, 0, sector);
@@ -150,7 +152,7 @@ int hddReadMBR(HDD* hdd)
 		return HDD_ERROR_NO_MBR;
 	}
 
-	PartitionTableEntry* pte = (PartitionTableEntry*)&sector[HDD_MBR_PARTITION_TABLE_OFFSET];
+	struct PartitionTableEntry* pte = (struct PartitionTableEntry*)&sector[HDD_MBR_PARTITION_TABLE_OFFSET];
 
 	// Check whiche partitions are active by looking at their type.
 	// TODO: Q: Is this the right way?
@@ -165,23 +167,21 @@ int hddReadMBR(HDD* hdd)
 		return HDD_ERROR_NO_PARTITIONS;
 	}
 
-	kmemcpy(&hdd->m_PTE[0], pte, sizeof(PartitionTableEntry) * HDD_MAX_PARTITIONS);
+	kmemcpy(&hdd->m_PTE[0], pte, sizeof(struct PartitionTableEntry) * HDD_MAX_PARTITIONS);
 	hdd->m_NumPartitions = numPartitions;
 
 	return HDD_SUCCESS;
 }
 
-int hddInit(HDD* hdd, uint32_t baseAddr)
+int hddInit(struct HDD* hdd, uint32_t baseAddr)
 {
 	if(!hddIsConnected(baseAddr)) {
 		return HDD_ERROR_NOT_CONNECTED;
 	}
 
 	// Init struct with default values
-	kmemset(hdd, 0, sizeof(HDD));
+	kmemset(hdd, 0, sizeof(struct HDD));
 	hdd->m_BaseAddr = baseAddr;
-	hdd->readSector = hddReadSector;
-	hdd->writeSector = 0; // TODO: 
 
 	// Read MBR
 	int err = hddReadMBR(hdd);
@@ -189,26 +189,35 @@ int hddInit(HDD* hdd, uint32_t baseAddr)
 		return err;
 	}
 
-	const uint32_t numPartitions = hdd->m_NumPartitions;
-	for(uint32_t i = 0;i < numPartitions;++i) {
-		if(hddInitPartition(hdd, i) != HDD_SUCCESS) {
-			return HDD_ERROR_INIT_PARTITION;
-		}
-	}
+//	const uint32_t numPartitions = hdd->m_NumPartitions;
+//	for(uint32_t i = 0;i < numPartitions;++i) {
+//		if(hddInitPartition(hdd, i) != HDD_SUCCESS) {
+//			return HDD_ERROR_INIT_PARTITION;
+//		}
+//	}
 
 	return HDD_SUCCESS;
 }
 
-uint32_t hddGetNumPartitions(HDD* hdd)
+uint32_t hddGetNumPartitions(struct HDD* hdd)
 {
 	return hdd->m_NumPartitions;
 }
 
-uint32_t hddGetPartitionSize(HDD* hdd, uint32_t id)
+uint32_t hddGetPartitionSize(struct HDD* hdd, uint32_t id)
 {
 	if(id >= hdd->m_NumPartitions) {
 		return ~0u;
 	}
 
-	return hdd->m_FAT[id].m_NumDataSectors * 512;
+	return hdd->m_PTE[id].m_NumSectors * 512;
+}
+
+struct PartitionTableEntry* hddGetPartitionTableEntry(struct HDD* hdd, uint32_t id)
+{
+	if(id >= hdd->m_NumPartitions) {
+		return 0;
+	}
+
+	return &hdd->m_PTE[id];
 }

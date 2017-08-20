@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "file_system.h"
 #include "libkernel/malloc.h"
 #include "libkernel/printf.h"
 #include "libkernel/string.h"
@@ -84,8 +85,41 @@ char* kgets(char* s)
     return s;
 }
 
+void listCWD(struct FileSystem* fs)
+{
+	struct FileSystemDir* rootDir = fsOpenDir(fs, ".");
+	if (rootDir) {
+		struct FileSystemDirEnt* fsde;
+		while ((fsde = fsReadDir(fs, rootDir)) != 0) {
+			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
+			char attrStr[6] = "-----";
+			if (attrs & ATTR_ARCHIVE) {
+				attrStr[0] = 'a';
+			}
+			if (attrs & ATTR_DIRECTORY) {
+				attrStr[1] = 'd';
+			}
+			if (attrs & ATTR_HIDDEN) {
+				attrStr[2] = 'h';
+			}
+			if (attrs & ATTR_READ_ONLY) {
+				attrStr[3] = 'r';
+			}
+			if (attrs & ATTR_SYSTEM) {
+				attrStr[4] = 's';
+			}
+
+			kprintf("%s %s %u\n", attrStr, fsde->m_FilenameLong, fsde->m_DirEntry.m_FileSize);
+		}
+
+		fsCloseDir(fs, rootDir);
+	}
+}
+
 int main()
 {
+	extern struct FileSystem* g_FS;
+
 	char input[256];
 
 	while(1) {
@@ -96,6 +130,27 @@ int main()
 			continue;
 		} else if(!kstrcmp(input, "exit")) {
 			break;
+		} else if(!kstrcmp(input, "ls")) {
+			if(g_FS) {
+				listCWD(g_FS);
+			} else {
+				kprintf("No valid file system found.\n");
+			}
+		} else if(!kstrncmp(input, "cd ", 3)) {
+			if(g_FS) {
+				const char* folderName = kstrchr(input, ' ');
+				if(!folderName) {
+					kprintf("Invalid folder name.\n");
+				} else {
+					++folderName;
+					kprintf("Entering folder \"%s\"...\n", folderName);
+					if(fsChangeDir(g_FS, folderName)) {
+						kprintf("Folder %s not found.\n", folderName);
+					}
+				}
+			} else {
+				kprintf("No valid file system found.\n");
+			}
 		} else {
 			kprintf("Unknown command: %s\n", input);
 		}

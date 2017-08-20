@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "syscall.h"
-#include "uart.h"
+#include "devices/uart.h"
 
 #undef errno
 int errno;

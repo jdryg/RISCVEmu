@@ -1,6 +1,6 @@
 #include "kernel.h"
-#include "uart.h"
 #include "printf.h"
+#include "devices/uart.h"
 
 static UART* s_KernelConsoleUART = 0;
 static const char* s_KernelPanicMsg = 0;
