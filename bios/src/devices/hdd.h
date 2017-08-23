@@ -16,7 +16,7 @@
 
 #define HDD_MAX_PARTITIONS 4
 
-struct PartitionTableEntry
+typedef struct PartitionTableEntry
 {
 	uint8_t m_Status;
 	uint8_t m_FirstHead;
@@ -28,20 +28,20 @@ struct PartitionTableEntry
 	uint16_t m_LastCylinder : 11;
 	uint32_t m_FirstSectorLBA;
 	uint32_t m_NumSectors;
-} __attribute__((packed));
+} __attribute__((packed)) PartitionTableEntry;
 
-struct HDD
+typedef struct HDD
 {
-	uint32_t m_BaseAddr;
-	struct PartitionTableEntry m_PTE[HDD_MAX_PARTITIONS];
+	PartitionTableEntry m_PTE[HDD_MAX_PARTITIONS];
 	uint32_t m_NumPartitions;
-};
+	uint32_t m_BaseAddr;
+} HDD;
 
-int hddInit(struct HDD* hdd, uint32_t baseAddr);
-void hddReadSector(struct HDD* hdd, uint32_t lba, uint8_t* sector);
-void hddWriteSector(struct HDD* hdd, uint32_t lba, const uint8_t* sector);
-uint32_t hddGetNumPartitions(struct HDD* hdd);
-uint32_t hddGetPartitionSize(struct HDD* hdd, uint32_t id);
-struct PartitionTableEntry* hddGetPartitionTableEntry(struct HDD* hdd, uint32_t id);
+int hddInit(HDD* hdd, uint32_t baseAddr);
+void hddReadSector(HDD* hdd, uint32_t lba, uint8_t* sector);
+void hddWriteSector(HDD* hdd, uint32_t lba, const uint8_t* sector);
+uint32_t hddGetNumPartitions(HDD* hdd);
+uint32_t hddGetPartitionSize(HDD* hdd, uint32_t id);
+PartitionTableEntry* hddGetPartitionTableEntry(HDD* hdd, uint32_t id);
 
 #endif

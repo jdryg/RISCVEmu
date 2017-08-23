@@ -27,7 +27,7 @@ C_SRCS += ./libkernel/malloc.c
 C_SRCS += ./libkernel/string.c
 HEADERS += ./libkernel/kernel.h
 HEADERS += ./libkernel/memory.h
-HEADERS += ./libkernel/printf.h
+HEADERS += ./libkernel/stdio.h
 HEADERS += ./libkernel/malloc.h
 HEADERS += ./libkernel/string.h
 

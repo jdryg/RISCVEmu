@@ -1,49 +1,47 @@
 #include "string.h"
 
+// http://clc-wiki.net/wiki/strcmp
 int kstrcmp(const char* str1, const char* str2)
 {
-    while(*str1 != 0 && str2 != 0) {
-        int dif = (int)(*str1++) - (int)(*str2++);
-        if(dif != 0) {
-            return dif;
-        }
-    }
+	while(*str1 && (*str1 == *str2)) {
+		str1++;
+		str2++;
+	}
 
-    return (int)(*str1++) - (int)(*str2++);
+	return *(const unsigned char*)str1 - *(const unsigned char*)str2;
 }
 
+// http://clc-wiki.net/wiki/strncmp
 int kstrncmp(const char* str1, const char* str2, size_t num)
 {
-    while(num > 0 && *str1 != 0 && *str2 != 0) {
-        int dif = (int)(*str1++) - (int)(*str2++);
-        if(dif != 0) {
-            return dif;
-        }
+	while(num--) {
+		if(*str1++ != *str2++) {
+			return *(unsigned char*)(str1 - 1) - *(unsigned char*)(str2 - 1);
+		}
+	}
 
-        --num;
-    }
-
-    return num != 0 ? (int)(*str1++) - (int)(*str2++) : 0;
+	return 0;
 }
 
+// http://clc-wiki.net/wiki/strchr
 const char* kstrchr(const char* str, int character)
 {
-    while(*str != 0) {
-        if(*str == (char)character) {
-            return str;
-        }
+	while(*str != (char)character) {
+		if (!*str++) {
+			return 0;
+		}
+	}
 
-        str++;
-    }
-
-    return 0;
+	return (char*)str;
 }
 
+// http://clc-wiki.net/wiki/strlen
 size_t kstrlen(const char* str)
 {
-    size_t size = 0;
-    while(*str++ != 0) {
-        ++size;
-    }
-    return size;
+	const char* p = str;
+	while(*str) {
+		++str;
+	}
+
+	return str - p;
 }

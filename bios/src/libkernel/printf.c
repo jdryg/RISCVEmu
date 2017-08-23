@@ -29,8 +29,8 @@
  * OF SUCH DAMAGE.
  */
 
-#include "printf.h"
- 
+#include <stdarg.h>
+
 typedef void (*putcf) (void*,char);
 
 static putcf stdout_putf;
@@ -144,16 +144,33 @@ static void putchw(void* putp, putcf putf, int n, char z, char* bf)
 	char ch;
 	char* p = bf;
 
-	while (*p++ && n > 0) {
-		n--;
-	}
+	if(n >= 0) {
+		// Count how many remaining spaces/zeroes we will have when the 
+		// string is printed, compared to the specified length n.
+		while (*p++ && n > 0) {
+			n--;
+		}
 
-	while (n-- > 0) {
-		putf(putp, fc);
-	}
+		// Print all spaces/zeroes
+		while (n-- > 0) {
+			putf(putp, fc);
+		}
 
-	while ((ch = *bf++)) {
-		putf(putp, ch);
+		// Print the string.
+		while ((ch = *bf++)) {
+			putf(putp, ch);
+		}
+	} else {
+		// Print the string.
+		while ((ch = *bf++)) {
+			putf(putp, ch);
+			++n;
+		}
+
+		// Print trailing spaces
+		while (n++ < 0) {
+			putf(putp, fc);
+		}
 	}
 }
 
@@ -164,14 +181,19 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 
 	while ((ch = *(fmt++))) {
 		if (ch != '%') {
-			putf(putp,ch);
+			putf(putp, ch);
 		} else {
 			char lz = 0;
 #ifdef 	PRINTF_LONG_SUPPORT
 			char lng = 0;
 #endif
+			int negW = 0;
 			int w = 0;
 			ch = *(fmt++);
+			if(ch == '-') {
+				ch = *(fmt++);
+				negW = 1;
+			}
 			if (ch == '0') {
 				ch = *(fmt++);
 				lz = 1;
@@ -179,6 +201,7 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 
 			if (ch >= '0' && ch <= '9') {
 				ch = a2i(ch, &fmt, 10, &w);
+				w = negW ? -w : w;
 			}
 
 #ifdef PRINTF_LONG_SUPPORT

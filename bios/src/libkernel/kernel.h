@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-typedef struct UART_t UART;
+typedef struct UART UART;
 
 void kinit(UART* consoleUART);
 

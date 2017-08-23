@@ -1,11 +1,10 @@
 #include <stdint.h>
-#include "syscall.h" // sys_exit()
 #include "file_system.h"
 #include "devices/uart.h" // uartInit()
 #include "devices/ram.h" // ramInit()
 #include "devices/hdd.h" // hddInit()
 #include "libkernel/kernel.h" // kinit()
-#include "libkernel/printf.h" // kprintfInit()/kprintf()
+#include "libkernel/stdio.h" // kprintf()/kputs()
 
 #define PAGE_SIZE                      0x00001000
 
@@ -25,12 +24,12 @@ void _init()
 	kinit(&g_ConsoleUART);
 
 	// Initialize RAM
-	kprintf("Initializing RAM...\n");
+	kputs("Initializing RAM...");
 	ramInit(&g_RAM, RAM_BASE_ADDRESS, PAGE_SIZE);
 	kprintf("- Size: %u bytes\n", g_RAM.m_TotalSize);
 
 	// Initialize HDD
-	kprintf("Initializing HDD...\n", 20);
+	kputs("Initializing HDD...");
 	int hddErr = hddInit(&g_HDD, HDD_BASE_ADDRESS);
 	if(hddErr == HDD_SUCCESS) {
 		const uint32_t numPartitions = hddGetNumPartitions(&g_HDD);
@@ -41,9 +40,10 @@ void _init()
 			kprintf("- Partition #%u: %u bytes\n", i, partitionSize);
 		}
 
+		kputs("Initializing file system (partition #0)");
 		g_FS = fsInit(&g_HDD, hddGetPartitionTableEntry(&g_HDD, 0));
 		if(g_FS == 0) {
-			kprintf("(x) Failed to initialize file system for partition #0\n");
+			kputs("(x) Failed to initialize file system");
 		}
 	} else {
 		const char* msg = "Unknown Error";
@@ -60,5 +60,14 @@ void _init()
 	}
 
 	extern int main();
-	sys_exit(main());
+	int res = main();
+
+	// Shutdown.
+	if(g_FS) {
+		kputs("Shutting down file system");
+		fsShutdown(g_FS);
+		g_FS = 0;
+	}
+
+	kpanic("HALT");
 }

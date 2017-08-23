@@ -143,19 +143,11 @@ ssize_t sys_read(int fd, void* ptr, size_t len)
 
 ssize_t sys_write(int fd, const void* ptr, size_t len)
 {
-	const uint8_t* current = (const uint8_t*)ptr;
-	size_t jj;
 	if (sys_isatty(fd)) {
-		for (jj = 0; jj < len; jj++) {
-			uartSend(&g_ConsoleUART, current + jj, 1);
-			if (current[jj] == '\n') {
-				uartSend(&g_ConsoleUART, "\r", 1);
-			}
-		}
-
+		uartSend(&g_ConsoleUART, ptr, len);
 		return len;
 	} 
-  
+
 	return sys_stub(EBADF);
 }
 

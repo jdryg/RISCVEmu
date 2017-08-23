@@ -63,7 +63,7 @@ int hddIsConnected(uint32_t baseAddr)
 	return g_HDDTrapTriggered == 0 ? 1 : 0;
 }
 
-void hddReadSector(struct HDD* hdd, uint32_t lba, uint8_t* sectorData)
+void hddReadSector(HDD* hdd, uint32_t lba, uint8_t* sectorData)
 {
 	const uint32_t baseAddr = hdd->m_BaseAddr;
 
@@ -84,65 +84,7 @@ void hddReadSector(struct HDD* hdd, uint32_t lba, uint8_t* sectorData)
 	}
 }
 
-/*
-int hddInitPartition(HDD* hdd, uint32_t partitionID)
-{
-	if(partitionID >= HDD_MAX_PARTITIONS) {
-		return HDD_ERROR_INVALID_PARTITION;
-	}
-
-	PartitionTableEntry* pte = &hdd->m_PTE[partitionID];
-	if(pte->m_PartitionType == 0) {
-		return HDD_ERROR_ACTIVATE_EMPTY_PARTITION;
-	}
-
-	// Read the partition's boot sector.
-	uint8_t bootSector[512];
-	hddReadSector(hdd, pte->m_FirstSectorLBA, bootSector);
-
-	// Is this a valid boot sector?
-	// NOTE: The locations of the values should be dependent on the sector size which 
-	// I assume it'll always be 512 bytes.
-	if(bootSector[510] != 0x55 || bootSector[511] != 0xAA) {
-		return HDD_ERROR_NO_BOOT_SECTOR;
-	}
-
-	BIOSParamBlock* bpb = (BIOSParamBlock*)&bootSector[0];
-	if (!(bpb->m_JmpBoot[0] == 0xE9 || (bpb->m_JmpBoot[0] == 0xEB && bpb->m_JmpBoot[2] == 0x90)) ||
-		bpb->m_BytesPerSector != 512)
-	{
-		return HDD_ERROR_NO_BOOT_SECTOR;
-	}
-
-	// FAT type determination (see pdf).
-	uint32_t rootDirSectors = ((bpb->m_RootEntriesCount * 32) + (bpb->m_BytesPerSector - 1)) / bpb->m_BytesPerSector;
-	uint32_t fatSize = bpb->m_FATSize16 != 0 ? bpb->m_FATSize16 : bpb->FAT.FAT32.m_FATSize32;
-	uint32_t totalSec = bpb->m_TotalSectors16 != 0 ? bpb->m_TotalSectors16 : bpb->m_TotalSectors32;
-	uint32_t dataSec = totalSec - (bpb->m_ReservedSectorCount + (bpb->m_NumFATs * fatSize) + rootDirSectors);
-	uint32_t countOfClusters = dataSec / bpb->m_SectorsPerCluster;
-
-	uint32_t fatType = FAT_TYPE_UNKNOWN;
-	if (countOfClusters < 4085) {
-		fatType = FAT_TYPE_FAT12;
-	} else if (countOfClusters < 65525) {
-		fatType = FAT_TYPE_FAT16;
-	} else {
-		fatType = FAT_TYPE_FAT32;
-	}
-
-	FATPartitionInfo* fpi = &hdd->m_FAT[partitionID];
-	fpi->m_NumRootDirSectors = rootDirSectors;
-	fpi->m_FATSize = fatSize;
-	fpi->m_TotalSectors = totalSec;
-	fpi->m_NumDataSectors = dataSec;
-	fpi->m_NumClusters = countOfClusters;
-	fpi->m_FATType = fatType;
-
-	return fatType == FAT_TYPE_FAT16 ? HDD_SUCCESS : HDD_ERROR_UNSUPPORTED_FS;
-}
-*/
-
-int hddReadMBR(struct HDD* hdd)
+int hddReadMBR(HDD* hdd)
 {
 	uint8_t sector[512];
 	hddReadSector(hdd, 0, sector);
@@ -152,9 +94,9 @@ int hddReadMBR(struct HDD* hdd)
 		return HDD_ERROR_NO_MBR;
 	}
 
-	struct PartitionTableEntry* pte = (struct PartitionTableEntry*)&sector[HDD_MBR_PARTITION_TABLE_OFFSET];
+	PartitionTableEntry* pte = (PartitionTableEntry*)&sector[HDD_MBR_PARTITION_TABLE_OFFSET];
 
-	// Check whiche partitions are active by looking at their type.
+	// Check which partitions are active by looking at their type.
 	// TODO: Q: Is this the right way?
 	uint32_t numPartitions = 0;
 	for(uint32_t i = 0;i < HDD_MAX_PARTITIONS;++i) {
@@ -167,20 +109,20 @@ int hddReadMBR(struct HDD* hdd)
 		return HDD_ERROR_NO_PARTITIONS;
 	}
 
-	kmemcpy(&hdd->m_PTE[0], pte, sizeof(struct PartitionTableEntry) * HDD_MAX_PARTITIONS);
+	kmemcpy(&hdd->m_PTE[0], pte, sizeof(PartitionTableEntry) * HDD_MAX_PARTITIONS);
 	hdd->m_NumPartitions = numPartitions;
 
 	return HDD_SUCCESS;
 }
 
-int hddInit(struct HDD* hdd, uint32_t baseAddr)
+int hddInit(HDD* hdd, uint32_t baseAddr)
 {
 	if(!hddIsConnected(baseAddr)) {
 		return HDD_ERROR_NOT_CONNECTED;
 	}
 
 	// Init struct with default values
-	kmemset(hdd, 0, sizeof(struct HDD));
+	kmemset(hdd, 0, sizeof(HDD));
 	hdd->m_BaseAddr = baseAddr;
 
 	// Read MBR
@@ -189,22 +131,15 @@ int hddInit(struct HDD* hdd, uint32_t baseAddr)
 		return err;
 	}
 
-//	const uint32_t numPartitions = hdd->m_NumPartitions;
-//	for(uint32_t i = 0;i < numPartitions;++i) {
-//		if(hddInitPartition(hdd, i) != HDD_SUCCESS) {
-//			return HDD_ERROR_INIT_PARTITION;
-//		}
-//	}
-
 	return HDD_SUCCESS;
 }
 
-uint32_t hddGetNumPartitions(struct HDD* hdd)
+uint32_t hddGetNumPartitions(HDD* hdd)
 {
 	return hdd->m_NumPartitions;
 }
 
-uint32_t hddGetPartitionSize(struct HDD* hdd, uint32_t id)
+uint32_t hddGetPartitionSize(HDD* hdd, uint32_t id)
 {
 	if(id >= hdd->m_NumPartitions) {
 		return ~0u;
@@ -213,7 +148,7 @@ uint32_t hddGetPartitionSize(struct HDD* hdd, uint32_t id)
 	return hdd->m_PTE[id].m_NumSectors * 512;
 }
 
-struct PartitionTableEntry* hddGetPartitionTableEntry(struct HDD* hdd, uint32_t id)
+PartitionTableEntry* hddGetPartitionTableEntry(HDD* hdd, uint32_t id)
 {
 	if(id >= hdd->m_NumPartitions) {
 		return 0;

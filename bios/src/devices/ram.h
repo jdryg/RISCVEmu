@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-typedef struct RAM_t
+typedef struct RAM
 {
 	uint32_t m_BaseAddr;
 	uint32_t m_PageSize;
