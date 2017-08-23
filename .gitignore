@@ -17,3 +17,4 @@
 /bios/src/*.o
 /bios/src/bios
 /bios/src/libkernel/*.o
+/bios/src/devices/*.o
