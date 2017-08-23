@@ -4,10 +4,10 @@
 #include <stdarg.h>
 
 // printf.c
-void kprintfInit(void* putp, void (*putf)(void*, char));
 int kprintf(const char* fmt, ...);
 int ksprintf(char* s, const char *fmt, ...);
-int kformat(void* putp,void (*putf)(void*, char), const char *fmt, va_list va);
 int kputs(const char *str);
+int kputchar(int character);
+int kgetchar();
 
 #endif

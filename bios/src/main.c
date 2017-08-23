@@ -1,162 +1,46 @@
 #include <stdint.h>
 #include "file_system.h"
 #include "syscall.h"
+#include "cmd_line.h"
 #include "libkernel/malloc.h"
 #include "libkernel/string.h"
 #include "libkernel/memory.h"
 #include "libkernel/kernel.h"
 #include "libkernel/stdio.h"
+#include "libkernel/ctype.h"
 
-#define KEY_LEFT_ARROW 1
-#define KEY_RIGHT_ARROW 4
-#define KEY_HOME 2
-#define KEY_END 3
-#define KEY_DELETE 127
-#define KEY_BACKSPACE 8
-#define KEY_ESCAPE 27
-#define KEY_TAB '\t'
+extern FileSystem* g_FS;
 
-#define CONSOLE_COMMAND 0xFF
-#define CONSOLE_CMD_DEL_PREV 0
-#define CONSOLE_CMD_RAW_OUTPUT 1
+typedef int(*BuildInCommandFunc)(int argc, char** argv);
 
-typedef struct CmdLine
+typedef struct BuildInCommand
 {
-	char* m_Buffer;
-	uint32_t m_Size;
-	uint32_t m_Capacity;
+	const char* m_Name;
+	BuildInCommandFunc m_Func;
+} BuildInCommand;
 
-	char** m_Args;
-	uint32_t m_NumArgs;
-	uint32_t m_ArgsCapacity;
-} CmdLine;
+int cmdExit(int argc, char** argv);
+int cmdListDirectoryContents(int argc, char** argv);
+int cmdChangeWorkingDirectory(int argc, char** argv);
+int cmdDisplayFileContents(int argc, char** argv);
 
-void cmdLineDestroy(CmdLine* cmdLine)
-{
-	kfree(cmdLine->m_Args);
-	cmdLine->m_Args = 0;
-	cmdLine->m_NumArgs = 0;
-	cmdLine->m_ArgsCapacity = 0;
-
-	kfree(cmdLine->m_Buffer);
-	cmdLine->m_Buffer = 0;
-	cmdLine->m_Size = 0;
-	cmdLine->m_Capacity = 0;
-}
-
-void cmdLinePushChar(CmdLine* cmdLine, char c)
-{
-	if(cmdLine->m_Size == cmdLine->m_Capacity) {
-		uint32_t oldCapacity = cmdLine->m_Capacity;
-		cmdLine->m_Capacity += 64;
-		cmdLine->m_Buffer = (char*)krealloc(cmdLine->m_Buffer, cmdLine->m_Capacity);
-		kmemset(&cmdLine->m_Buffer[oldCapacity], 0, 64);
-	}
-
-	cmdLine->m_Buffer[cmdLine->m_Size++] = c;
-}
-
-void cmdLinePushArg(CmdLine* cmdLine, char* arg)
-{
-	if(cmdLine->m_NumArgs == cmdLine->m_ArgsCapacity) {
-		uint32_t oldCapacity = cmdLine->m_ArgsCapacity;
-		cmdLine->m_ArgsCapacity += 8;
-		cmdLine->m_Args = (char**)krealloc(cmdLine->m_Args, sizeof(char*) * cmdLine->m_ArgsCapacity);
-		kmemset(&cmdLine->m_Args[oldCapacity], 0, sizeof(char*) * 8);
-	}
-
-	cmdLine->m_Args[cmdLine->m_NumArgs++] = arg;
-}
-
-int isPrintableChar(char c)
-{
-	return (c >= 32 && c <= 126) ? 1 : 0;
-}
-
-char kgetchar()
-{
-	char c;
-	while(!sys_read(0, &c, 1));
-	return c;
-}
-
-int cmdLineReadStdIn(CmdLine* cmdLine)
-{
-	cmdLine->m_Size = 0;
-	cmdLine->m_NumArgs = 0;
-
-	char k;
-    while ((k = kgetchar()) != '\n') {
-        if (k == -1) {
-            return cmdLine->m_Size;
-		}
-
-		if(!isPrintableChar(k)) {
-			if(k == KEY_BACKSPACE) {
-				// Send "Delete char" command to console.
-				if(cmdLine->m_Size != 0) {
-					--cmdLine->m_Size;
-
-					uint8_t consoleCmd[3] = {
-						CONSOLE_COMMAND,
-						CONSOLE_CMD_DEL_PREV,
-						1
-					};
-					sys_write(1, &consoleCmd[0], 3);
-				}
-			}
-
-			continue;
-		}
-
-		// Echo
-		// TODO: Q: Should this be handle by the console itself?
-		sys_write(1, &k, 1);
-
-		if(cmdLine->m_Size == 0 && k == ' ') {
-			continue;
-		}
-
-		cmdLinePushChar(cmdLine, k);
-    }
-
-	cmdLinePushChar(cmdLine, '\0');
-
-	k = '\n';
-	sys_write(1, &k, 1);
-
-	return cmdLine->m_Size - 1; // Size w/o the null terminating char.
-}
-
-void cmdLineTokenize(CmdLine* cmdLine)
-{
-	cmdLine->m_NumArgs = 0;
-
-	if(cmdLine->m_Size <= 1) {
-		return;
-	}
-
-	char* ptr = cmdLine->m_Buffer;
-	cmdLinePushArg(cmdLine, ptr);
-
-	char* space = (char*)kstrchr(ptr, ' ');
-	while(space != 0) {
-		*space = '\0';
-
-		ptr = ++space;
-		cmdLinePushArg(cmdLine, ptr);
-
-		space = (char*)kstrchr(ptr, ' ');
-	}
-}
+BuildInCommand g_BuildInCommands[] = {
+	{ "exit", cmdExit },
+	{ "ls", cmdListDirectoryContents },
+	{ "cd", cmdChangeWorkingDirectory },
+	{ "cat", cmdDisplayFileContents }
+};
+const uint32_t kNumBuildInCommands = sizeof(g_BuildInCommands) / sizeof(BuildInCommand);
 
 // ls
-void listDir(FileSystem* fs, const char* dirName)
+int cmdListDirectoryContents(int argc, char** argv)
 {
-	FileSystemDir* rootDir = fsOpenDir(fs, dirName);
+	const char* dirName = argc <= 1 ? "." : argv[1];
+
+	FileSystemDir* rootDir = fsOpenDir(g_FS, dirName);
 	if (rootDir) {
 		FileSystemDirEnt* fsde;
-		while ((fsde = fsReadDir(fs, rootDir)) != 0) {
+		while ((fsde = fsReadDir(g_FS, rootDir)) != 0) {
 			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
 			char attrStr[6] = "-----";
 			if (attrs & ATTR_ARCHIVE)    { attrStr[0] = 'a'; }
@@ -168,88 +52,87 @@ void listDir(FileSystem* fs, const char* dirName)
 			kprintf("%s %16u %s\n", attrStr, fsde->m_DirEntry.m_FileSize, fsde->m_FilenameLong);
 		}
 
-		fsCloseDir(fs, rootDir);
+		fsCloseDir(g_FS, rootDir);
 	}
+
+	return 1;
 }
 
 // cat
-void displayFileContents(FileSystem* fs, const char* filename)
+int cmdDisplayFileContents(int argc, char** argv)
 {
-	FileSystemFile* file = fsOpenFile(fs, filename, FILE_OPEN_READ | FILE_OPEN_BINARY);
-	if(!file) {
-		return;
+	if(argc <= 1) {
+		kputs("(x) Expected argument to command 'cat'\n");
+	} else {
+		FileSystemFile* file = fsOpenFile(g_FS, argv[1], FILE_OPEN_READ | FILE_OPEN_BINARY);
+		if(!file) {
+			kprintf("(x) Failed to open \"%s\" for reading\n", argv[1]);
+		} else {
+			char buf[512];
+			while(!fsEOF(g_FS, file)) {
+				uint32_t numBytesRead = (uint32_t)fsReadFile(g_FS, file, &buf[0], 512);
+				kconsoleRawOutput(&buf[0], numBytesRead);
+			}
+
+			fsCloseFile(g_FS, file);
+
+			kputchar('\n');
+		}
 	}
 
-	char buf[516]; // 2 (CONSOLE_COMMAND + CONSOLE_CMD_RAW_OUTPUT) + 2 (raw output length) + 512 bytes
-	while(!fsEOF(fs, file)) {
-		uint32_t numBytesRead = (uint32_t)fsReadFile(fs, file, &buf[4], 512);
+	return 1;
+}
 
-		buf[0] = CONSOLE_COMMAND;
-		buf[1] = CONSOLE_CMD_RAW_OUTPUT;
-		buf[2] = (uint8_t)numBytesRead & 0x000000FF;
-		buf[3] = (uint8_t)((numBytesRead >> 8) & 0x000000FF);
-
-		sys_write(1, &buf[0], numBytesRead + 4);
+// cd
+int cmdChangeWorkingDirectory(int argc, char** argv)
+{
+	if(argc <= 1) {
+		kputs("Error: Expected argument to command 'cd'\n");
+	} else {
+		fsChangeDir(g_FS, argv[1]);
 	}
 
-	fsCloseFile(fs, file);
+	return 1;
+}
 
-	char newline = '\n';
-	sys_write(1, &newline, 1);
+// exit
+int cmdExit(int argc, char** argv)
+{
+	return 0;
+}
+
+int executeCommandLine(CmdLine* cmdLine)
+{
+	char** argv = cmdLine->m_Args;
+	int argc = (int)cmdLine->m_NumArgs;
+
+	for(uint32_t i = 0; i < kNumBuildInCommands; ++i) {
+		if(!kstrcmp(argv[0], g_BuildInCommands[i].m_Name)) {
+			return g_BuildInCommands[i].m_Func(argc, argv);
+		}
+	}
+
+	// TODO: exec() cmdline as user-mode program.
+
+	return 1;
 }
 
 int main()
 {
-	extern FileSystem* g_FS;
-
 	CmdLine cmdLine;
-	kmemset(&cmdLine, 0, sizeof(CmdLine));
+	cmdLineInit(&cmdLine);
 
-	while(1) {
+	int status = 1;
+	while(status) {
 		kprintf("> ");
 		if(!cmdLineReadStdIn(&cmdLine)) {
 			continue;
 		}
 
 		cmdLineTokenize(&cmdLine);
-		kassert(cmdLine.m_NumArgs != 0, "tokenizeCmdLine() failed");
+		kassert(cmdLine.m_NumArgs != 0, "cmdLineTokenize() failed");
 
-		const char** argv = (const char**)cmdLine.m_Args;
-		const uint32_t argc = cmdLine.m_NumArgs;
-		if(!kstrcmp(argv[0], "exit")) {
-			break;
-		} else if(!kstrcmp(argv[0], "ls")) {
-			if(!g_FS) {
-				kprintf("No valid file system found.\n");
-				continue;
-			}
-
-			listDir(g_FS, argc == 1 ? "." : argv[1]);
-		} else if(!kstrcmp(argv[0], "cd")) {
-			if(!g_FS) {
-				kprintf("No valid file system found.\n");
-				continue;
-			}
-
-			if(argc == 1) {
-				kprintf("No folder specified.\n");
-				continue;
-			}
-			
-			kprintf("Entering folder \"%s\"...\n", argv[1]);
-			if(fsChangeDir(g_FS, argv[1])) {
-				kprintf("Folder \"%s\" not found or not a folder.\n", argv[1]);
-			}
-		} else if(!kstrcmp(argv[0], "cat")) {
-			if(!g_FS) {
-				kprintf("No valid file system found.\n");
-				continue;
-			}
-
-			displayFileContents(g_FS, argv[1]);
-		} else {
-			kprintf("Unknown command: %s\n", argv[0]);
-		}
+		status = executeCommandLine(&cmdLine);
 	}
 
 	cmdLineDestroy(&cmdLine);

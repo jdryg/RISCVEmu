@@ -1,7 +1,7 @@
 #include "exception_handler.h"
 #include "syscall.h"
-#include <string.h>
-#include <unistd.h>
+#include "libkernel/stdio.h"
+#include "libkernel/kernel.h"
 
 uintptr_t unhandledTrap(uintptr_t mcause, uintptr_t epc, uintptr_t* regs);
 uintptr_t illegalInstrTrap(uintptr_t mcaus, uintptr_t epc, uintptr_t* regs);
@@ -29,11 +29,9 @@ static TrapHandler g_TrapHandlers[MCAUSE_MAX_TRAPS] = {
 
 uintptr_t unhandledTrap(uintptr_t mcause, uintptr_t epc, uintptr_t* regs)
 {
-	const char* message = "\nUnhandled trap: ";
-
-	sys_write(STDERR_FILENO, message, strlen(message));
-	sys_write_hex(STDERR_FILENO, mcause);
-	while (1);
+	char msg[256];
+	ksprintf(msg, "\nUnhandled trap 0x%02X at address 0x%08X\n", mcause, epc);
+	kpanic(msg);
 
 	// Unreachable code
 	return epc;
@@ -41,10 +39,9 @@ uintptr_t unhandledTrap(uintptr_t mcause, uintptr_t epc, uintptr_t* regs)
 
 uintptr_t illegalInstrTrap(uintptr_t mcause, uintptr_t epc, uintptr_t* regs)
 {
-	const char* message = "\nIllegal instruction at address ";
-	sys_write(STDERR_FILENO, message, strlen(message));
-	sys_write_hex(STDERR_FILENO, epc);
-	while(1);
+	char msg[256];
+	ksprintf(msg, "\nIllegal instruction at address 0x%08X\n", epc);
+	kpanic(msg);
 
 	// Unreachable code
 	return epc;

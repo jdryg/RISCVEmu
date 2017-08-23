@@ -30,11 +30,11 @@
  */
 
 #include <stdarg.h>
+#include "stdio.h"
 
-typedef void (*putcf) (void*,char);
+typedef void (*putcf) (void*, char);
 
-static putcf stdout_putf;
-static void* stdout_putp;
+int kformat(void* putp, void (*putf)(void*, char), const char *fmt, va_list va);
 
 #ifdef PRINTF_LONG_SUPPORT
 static void uli2a(unsigned long int num, unsigned int base, int uc, char* bf)
@@ -67,7 +67,7 @@ static void li2a(long num, char* bf)
 		*bf++ = '-';
 	}
 
-	uli2a(num,10,0,bf);
+	uli2a(num, 10, 0, bf);
 }
 #endif
 
@@ -138,11 +138,13 @@ static char a2i(char ch, const char** src, int base, int* nump)
 	return ch;
 }
 
-static void putchw(void* putp, putcf putf, int n, char z, char* bf)
+static int putchw(void* putp, putcf putf, int n, char z, char* bf)
 {
+	int len = 0;
 	char fc = z ? '0' : ' ';
 	char ch;
 	char* p = bf;
+	char* bfStart = bf;
 
 	if(n >= 0) {
 		// Count how many remaining spaces/zeroes we will have when the 
@@ -152,6 +154,7 @@ static void putchw(void* putp, putcf putf, int n, char z, char* bf)
 		}
 
 		// Print all spaces/zeroes
+		len += n;
 		while (n-- > 0) {
 			putf(putp, fc);
 		}
@@ -168,20 +171,25 @@ static void putchw(void* putp, putcf putf, int n, char z, char* bf)
 		}
 
 		// Print trailing spaces
+		len -= n;
 		while (n++ < 0) {
 			putf(putp, fc);
 		}
 	}
+
+	return len + (bf - bfStart);
 }
 
-int kformat(void* putp, putcf putf, const char *fmt, va_list va)
+int kformat(void* putp, putcf putf, const char* fmt, va_list va)
 {
+	int len = 0;
 	char bf[12];
 	char ch;
 
 	while ((ch = *(fmt++))) {
 		if (ch != '%') {
 			putf(putp, ch);
+			++len;
 		} else {
 			char lz = 0;
 #ifdef 	PRINTF_LONG_SUPPORT
@@ -223,7 +231,7 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 #ifdef PRINTF_LONG_SUPPORT
 				}
 #endif
-				putchw(putp, putf, w, lz, bf);
+				len += putchw(putp, putf, w, lz, bf);
 				break;
 			}
 			case 'd': {
@@ -236,7 +244,7 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 #ifdef PRINTF_LONG_SUPPORT
 				}
 #endif
-				putchw(putp, putf, w, lz, bf);
+				len += putchw(putp, putf, w, lz, bf);
 				break;
 			}
 			case 'x':
@@ -250,16 +258,18 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 #ifdef PRINTF_LONG_SUPPORT
 				}
 #endif
-				putchw(putp, putf, w, lz, bf);
+				len += putchw(putp, putf, w, lz, bf);
 				break;
 			case 'c':
 				putf(putp, (char)(va_arg(va, int)));
+				++len;
 				break;
 			case 's':
-				putchw(putp, putf, w, 0, va_arg(va, char*));
+				len += putchw(putp, putf, w, 0, va_arg(va, char*));
 				break;
 			case '%':
 				putf(putp,ch);
+				++len;
 			default:
 				break;
 			}
@@ -268,46 +278,36 @@ int kformat(void* putp, putcf putf, const char *fmt, va_list va)
 abort:
 	;
 
-	return 0; // (JD) TODO: 
+	return len;
 }
 
-void kprintfInit(void* putp,void (*putf)(void*, char))
+static void stringPutChar(void* p, char c)
 {
-	stdout_putf = putf;
-	stdout_putp = putp;
+	*(*((char**)p))++ = c;
+}
+
+static void stdoutPutChar(void* p, char c)
+{
+	kputchar((int)c);
 }
 
 int kprintf(const char *fmt, ...)
 {
 	va_list va;
 	va_start(va, fmt);
-	int len = kformat(stdout_putp, stdout_putf, fmt, va);
+	int len = kformat(0, stdoutPutChar, fmt, va);
 	va_end(va);
 
 	return len;
-}
-
-static void putcp(void* p, char c)
-{
-	*(*((char**)p))++ = c;
 }
 
 int ksprintf(char* s, const char *fmt, ...)
 {
 	va_list va;
-	va_start(va,fmt);
-	int len = kformat(&s, putcp, fmt, va);
-	putcp(&s,0);
+	va_start(va, fmt);
+	int len = kformat(&s, stringPutChar, fmt, va);
+	stringPutChar(&s, 0);
 	va_end(va);
 
 	return len;
-}
-
-int kputs(const char* str)
-{
-	char c;
-	while((c = *str++) != 0) {
-		stdout_putf(stdout_putp, c);
-	}
-	stdout_putf(stdout_putp, '\n');
 }

@@ -1,82 +1,29 @@
-// TODO: Cleanup and move to libkernel
-
-#include <stdint.h>
-#include <stdlib.h>
-#include <stddef.h>
+#include "syscall.h"
+#include "libkernel/stdio.h" // kputchar
+#include "libkernel/string.h" // kstrlen
+#include "libkernel/kernel.h" // kpanic
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <stdio.h>
-#include <string.h>
-#include "syscall.h"
-#include "devices/uart.h"
-
-#undef errno
-int errno;
-
-extern UART g_ConsoleUART;
-
-void sys_write_hex(int fd, uint32_t hex)
-{
-	uint8_t i, j;
-	char towrite;
-	
-	sys_write(fd, "0x", 2);
-	for (i = 8 ; i > 0; i--) {
-		j = i - 1;
-
-		uint8_t digit = ((hex & (0xF << (j * 4))) >> (j * 4));
-		towrite = digit < 0xA ? ('0' + digit) : ('A' +  (digit - 0xA));
-		sys_write(fd, &towrite, 1);
-	}
-}
-
-void sys_write_dec(int fd, uint32_t v)
-{
-	uint32_t len = 1;
-
-	/* count needed characters */
-	for (uint32_t tmp = v; (tmp > 9); ++len) {
-		tmp /= 10;
-	}
-
-	char str[64]; // Should be enough :)
-	char* ptr = &str[len - 1];
-	do {
-		uint8_t c = (v % 10) + '0';
-		*ptr-- = c;
-	} while ((v /= 10));
-
-	sys_write(fd, str, len);
-}
 
 void sys_exit(int code)
 {
-	const char * message = "\nProgram exited with code: ";
-	
-	sys_write(STDERR_FILENO, message, strlen(message));
-	sys_write_hex(STDERR_FILENO, code);
-
-	while (1);
+	char msg[256];
+	ksprintf(msg, "\nProgram exited with code %d\n", code);
+	kpanic(msg);
 }
 
 void* sys_brk(void* addr)
 {
-	sys_write(1, "sys_brk(", 8);
-	sys_write_hex(1, (uint32_t)addr);
-	sys_write(1, ") = ", 4);
+	kprintf("sys_brk(%08X)\n", addr);
 /*
 	extern char _end[];
 	extern char _heap_end[];
 	static char* curbrk = _end;
 
 	if ((char*)addr < _heap_end) {
-		sys_write_hex(1, (uint32_t)curbrk);
-		sys_write(1, "\n", 1);
 		return curbrk;
 	} else if ((char*)addr >= _heap_end) {
-		sys_write_hex(1, (uint32_t)curbrk);
-		sys_write(1, "\n", 1);
 		return curbrk;
 	}
 
@@ -85,16 +32,13 @@ void* sys_brk(void* addr)
 	}
 
 	curbrk = addr;
-
-	sys_write_hex(1, (uint32_t)curbrk);
-	sys_write(1, "\n", 1);
 */
 	return addr;
 }
 
 static int sys_stub(int err)
 {
-	errno = err;
+//	errno = err;
 	return -1;
 }
 
@@ -109,7 +53,7 @@ int sys_isatty(int fd)
 		return 1;
 	}
 
-	errno = EBADF;
+//	errno = EBADF;
 	return 0;
 }
 
@@ -135,7 +79,11 @@ off_t sys_lseek(int fd, off_t ptr, int dir)
 ssize_t sys_read(int fd, void* ptr, size_t len)
 {
 	if (sys_isatty(fd)) {
-		return uartRead(&g_ConsoleUART, (uint8_t*)ptr, len);
+		uint8_t* u8ptr = (uint8_t*)ptr;
+		size_t l = len;
+		while(l--) {
+			*u8ptr++ = (uint8_t)kgetchar();
+		}
 	}
 
 	return sys_stub(EBADF);
@@ -144,7 +92,12 @@ ssize_t sys_read(int fd, void* ptr, size_t len)
 ssize_t sys_write(int fd, const void* ptr, size_t len)
 {
 	if (sys_isatty(fd)) {
-		uartSend(&g_ConsoleUART, ptr, len);
+		uint8_t* u8ptr = (uint8_t*)ptr;
+		size_t l = len;
+		while(l-- > 0) {
+			kputchar((int)(*u8ptr++));
+		}
+
 		return len;
 	} 
 

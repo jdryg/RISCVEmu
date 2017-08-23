@@ -7,10 +7,12 @@ C_SRCS += ./init.c
 C_SRCS += ./syscall.c
 C_SRCS += ./exception_handler.c
 C_SRCS += ./file_system.c
+C_SRCS += ./cmd_line.c
 
 HEADERS += ./exception_handler.h
 HEADERS += ./syscall.h
 HEADERS += ./file_system.h
+HEADERS += ./cmd_line.h
 
 C_SRCS += ./devices/uart.c
 C_SRCS += ./devices/ram.c
@@ -25,11 +27,13 @@ C_SRCS += ./libkernel/memory.c
 C_SRCS += ./libkernel/printf.c
 C_SRCS += ./libkernel/malloc.c
 C_SRCS += ./libkernel/string.c
+C_SRCS += ./libkernel/ctype.c
 HEADERS += ./libkernel/kernel.h
 HEADERS += ./libkernel/memory.h
 HEADERS += ./libkernel/stdio.h
 HEADERS += ./libkernel/malloc.h
 HEADERS += ./libkernel/string.h
+HEADERS += ./libkernel/ctype.h
 
 LINKER_SCRIPT := ./link.lds
 

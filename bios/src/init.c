@@ -9,19 +9,15 @@
 #define PAGE_SIZE                      0x00001000
 
 #define RAM_BASE_ADDRESS               0x00100000
-#define CONSOLE_UART_BASE_ADDRESS      0x80000000
 #define HDD_BASE_ADDRESS               0x80001000
 
 RAM g_RAM;
-struct HDD g_HDD;
-UART g_ConsoleUART;
-
-struct FileSystem* g_FS;
+HDD g_HDD;
+FileSystem* g_FS;
 
 void _init()
 {
-	uartInit(&g_ConsoleUART, CONSOLE_UART_BASE_ADDRESS);
-	kinit(&g_ConsoleUART);
+	kinit();
 
 	// Initialize RAM
 	kputs("Initializing RAM...");

@@ -3,11 +3,11 @@
 
 #include <stdint.h>
 
-typedef struct UART UART;
-
-void kinit(UART* consoleUART);
-
+void kinit();
 void kpanic(const char* msg);
+
+void kconsoleDelPrevChars(uint32_t n);
+void kconsoleRawOutput(const uint8_t* buf, uint32_t len);
 
 #define kassert(expr, msg) do { if(!(expr)) { kpanic(msg); } } while(0);
 
