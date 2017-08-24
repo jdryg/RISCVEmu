@@ -1,6 +1,4 @@
 #include <stdint.h>
-#include "file_system.h"
-#include "syscall.h"
 #include "cmd_line.h"
 #include "libkernel/malloc.h"
 #include "libkernel/string.h"
@@ -8,8 +6,6 @@
 #include "libkernel/kernel.h"
 #include "libkernel/stdio.h"
 #include "libkernel/ctype.h"
-
-extern FileSystem* g_FS;
 
 typedef int(*BuildInCommandFunc)(int argc, char** argv);
 
@@ -37,22 +33,24 @@ int cmdListDirectoryContents(int argc, char** argv)
 {
 	const char* dirName = argc <= 1 ? "." : argv[1];
 
-	FileSystemDir* rootDir = fsOpenDir(g_FS, dirName);
+	DIR* rootDir = kopendir(dirName);
 	if (rootDir) {
-		FileSystemDirEnt* fsde;
-		while ((fsde = fsReadDir(g_FS, rootDir)) != 0) {
-			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
-			char attrStr[6] = "-----";
-			if (attrs & ATTR_ARCHIVE)    { attrStr[0] = 'a'; }
-			if (attrs & ATTR_DIRECTORY)  { attrStr[1] = 'd'; }
-			if (attrs & ATTR_HIDDEN)     { attrStr[2] = 'h'; }
-			if (attrs & ATTR_READ_ONLY)  { attrStr[3] = 'r'; }
-			if (attrs & ATTR_SYSTEM)     { attrStr[4] = 's'; }
+		struct dirent* fsde;
+		while ((fsde = kreaddir(rootDir)) != 0) {
+//			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
+//			char attrStr[6] = "-----";
+//			if (attrs & ATTR_ARCHIVE)    { attrStr[0] = 'a'; }
+//			if (attrs & ATTR_DIRECTORY)  { attrStr[1] = 'd'; }
+//			if (attrs & ATTR_HIDDEN)     { attrStr[2] = 'h'; }
+//			if (attrs & ATTR_READ_ONLY)  { attrStr[3] = 'r'; }
+//			if (attrs & ATTR_SYSTEM)     { attrStr[4] = 's'; }
+//
+//			kprintf("%s %16u %s\n", attrStr, fsde->m_DirEntry.m_FileSize, fsde->m_FilenameLong);
 
-			kprintf("%s %16u %s\n", attrStr, fsde->m_DirEntry.m_FileSize, fsde->m_FilenameLong);
+			kprintf("%s\n", fsde->d_name);
 		}
 
-		fsCloseDir(g_FS, rootDir);
+		kclosedir(rootDir);
 	}
 
 	return 1;
@@ -64,17 +62,19 @@ int cmdDisplayFileContents(int argc, char** argv)
 	if(argc <= 1) {
 		kputs("(x) Expected argument to command 'cat'\n");
 	} else {
-		FileSystemFile* file = fsOpenFile(g_FS, argv[1], FILE_OPEN_READ | FILE_OPEN_BINARY);
-		if(!file) {
+		int fd = kopen(argv[1], O_RDONLY);
+		if(fd == -1) {
 			kprintf("(x) Failed to open \"%s\" for reading\n", argv[1]);
 		} else {
 			char buf[512];
-			while(!fsEOF(g_FS, file)) {
-				uint32_t numBytesRead = (uint32_t)fsReadFile(g_FS, file, &buf[0], 512);
+			uint32_t numBytesRead = (uint32_t)kread(fd, &buf[0], 512);
+			while(numBytesRead) {
 				kconsoleRawOutput(&buf[0], numBytesRead);
+
+				numBytesRead = (uint32_t)kread(fd, &buf[0], 512);
 			}
 
-			fsCloseFile(g_FS, file);
+			kclose(fd);
 
 			kputchar('\n');
 		}
@@ -89,7 +89,7 @@ int cmdChangeWorkingDirectory(int argc, char** argv)
 	if(argc <= 1) {
 		kputs("Error: Expected argument to command 'cd'\n");
 	} else {
-		fsChangeDir(g_FS, argv[1]);
+		kchdir(argv[1]);
 	}
 
 	return 1;
@@ -113,6 +113,8 @@ int executeCommandLine(CmdLine* cmdLine)
 	}
 
 	// TODO: exec() cmdline as user-mode program.
+
+	kprintf("(x) Unknown command \"%s\"\n", argv[0]);
 
 	return 1;
 }

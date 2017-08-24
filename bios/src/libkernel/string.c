@@ -1,4 +1,6 @@
 #include "string.h"
+#include "malloc.h" // kmalloc()
+#include "memory.h" // kmemcpy()
 
 // http://clc-wiki.net/wiki/strcmp
 int kstrcmp(const char* str1, const char* str2)
@@ -44,4 +46,13 @@ size_t kstrlen(const char* str)
 	}
 
 	return str - p;
+}
+
+char* kstrdup(const char* s)
+{
+	size_t l = kstrlen(s);
+	char* ptr = (char*)kmalloc(l + 1);
+	kmemcpy(ptr, s, l);
+	ptr[l] = 0;
+	return ptr;
 }

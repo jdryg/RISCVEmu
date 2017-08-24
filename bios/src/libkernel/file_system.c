@@ -153,7 +153,19 @@ FileSystem* fsInit(HDD* hdd, PartitionTableEntry* pte)
 	uint8_t bootSector[512];
 	hddReadSector(hdd, pte->m_FirstSectorLBA, bootSector);
 
+	// Is this a valid boot sector?
+	// NOTE: The locations of the values should be dependent on the sector size which 
+	// I assume it'll always be 512 bytes.
+	if(bootSector[510] != 0x55 || bootSector[511] != 0xAA) {
+		return 0;
+	}
+
 	BIOSParamBlock* bpb = (BIOSParamBlock*)&bootSector[0];
+	if (!(bpb->m_JmpBoot[0] == 0xE9 || (bpb->m_JmpBoot[0] == 0xEB && bpb->m_JmpBoot[2] == 0x90)) ||
+		bpb->m_BytesPerSector != 512)
+	{
+		return 0;
+	}
 
 	// FAT type determination (see pdf).
 	uint32_t rootDirSectors = ((bpb->m_RootEntriesCount * 32) + (bpb->m_BytesPerSector - 1)) / bpb->m_BytesPerSector;
@@ -227,7 +239,7 @@ FileSystemDir* fsOpenDir(FileSystem* fs, const char* path)
 	kmemset(&dir->m_CurDirEntry, 0, sizeof(FileSystemDirEnt));
 	dir->m_FirstSector_abs = _clusterNumberToDataSector(fs, fsde.m_DirEntry.m_StartClusterNumber);
 	dir->m_NextDirEntryID = 0;
-
+	
 	return dir;
 }
 
@@ -426,6 +438,14 @@ int _getDirectoryEntryFromPath(FileSystem* fs, const char* path, FileSystemDirEn
 	if(*pathPtr == '/') {
 		sector = fs->m_FirstRootDirSector_abs;
 		++pathPtr;
+		if(*pathPtr == '\0') {
+			fsDirEntry->m_ParentDirSector_abs = ~0u;
+			fsDirEntry->m_DirEntryID = ~0u;
+			fsDirEntry->m_DirEntry.m_Attrs = ATTR_DIRECTORY;
+			fsDirEntry->m_DirEntry.m_StartClusterNumber = 0;
+			fsDirEntry->m_DirEntry.m_FileSize = 0;
+			return 1;
+		}
 	} else {
 		// Special cases of relative paths
 		if(pathPtr[0] == '.') {
