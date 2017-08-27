@@ -1,6 +1,7 @@
 #include "ram.h"
 #include "exception_handler.h"
 #include "../libkernel/memory.h"
+#include "../libkernel/kernel.h"
 
 static volatile int g_RAMTrapTriggered = 0;
 
@@ -74,16 +75,29 @@ void* ramAllocPage(RAM* ram)
 	// Find the first empty page in the bitmap.
 	for(uint32_t i = 0;i < 1024;++i) {
 		const uint32_t bitmap = ram->m_PageAllocBitmap[i];
-		if(bitmap != 0) {
+		if(bitmap != 0xFFFFFFFF) {
 			// There's an empty page in this set of 32 pages. Find it.
 			for(uint32_t j = 0;j < 32;++j) {
 				if(!(bitmap & (1 << j))) {
 					ram->m_PageAllocBitmap[i] |= (1 << j);
-					return (void*)(ram->m_BaseAddr + (i * 32 + j + 1) * ram->m_PageSize);
+					return (void*)(ram->m_BaseAddr + (i * 32 + j) * ram->m_PageSize);
 				}
 			}
 		}
 	}
 
 	return 0;
+}
+
+void ramFreePage(RAM* ram, void* pagePtr)
+{
+	uint32_t pageOffset = (uint32_t)pagePtr - ram->m_BaseAddr;
+	uint32_t pageIndex = pageOffset / ram->m_PageSize;
+
+	uint32_t bitmapIndex = pageIndex / 32;
+	uint32_t bitmapBit = pageIndex % 32;
+
+	uint32_t bitmap = ram->m_PageAllocBitmap[bitmapIndex];
+	kassert((bitmap & (1 << bitmapBit)) != 0, "ramFreePage(): Tried to free an unused page.");
+	ram->m_PageAllocBitmap[bitmapIndex] = bitmap & (~(1 << bitmapBit));
 }

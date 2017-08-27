@@ -22,6 +22,8 @@
 #include <malloc.h>
 #include <memory.h>
 
+#define ENABLE_TRACING         0
+
 #define MAX_STDIN_BUFFER       256
 
 #define CONSOLE_COLS           80
@@ -78,6 +80,12 @@ struct App
 	char m_StdInBuffer[MAX_STDIN_BUFFER];
 	uint32_t m_WinVis;
 
+#if ENABLE_TRACING
+	uint32_t* m_CPUTrace;
+	uint32_t m_NumCPUTraces;
+	uint32_t m_CPUTraceCapacity;
+#endif
+
 	App(uint32_t visibleWindows)
 		: m_GLFWWindow(nullptr)
 		, m_CPU(nullptr)
@@ -97,6 +105,11 @@ struct App
 		, m_NumMemoryDevices(0)
 		, m_SelectedMemDevice(-1)
 		, m_MemDevicesComboStr(nullptr)
+#if ENABLE_TRACING
+		, m_CPUTrace(nullptr)
+		, m_NumCPUTraces(0)
+		, m_CPUTraceCapacity(0)
+#endif
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
 		m_Config.m_ForceReloadKernelELF = false;
@@ -108,6 +121,18 @@ struct App
 	~App()
 	{}
 };
+
+#if ENABLE_TRACING
+void tracePush(App* app, uint32_t pc)
+{
+	if (app->m_NumCPUTraces + 1 > app->m_CPUTraceCapacity) {
+		app->m_CPUTraceCapacity = app->m_CPUTraceCapacity ? (app->m_CPUTraceCapacity * 3) / 2 : 256;
+		app->m_CPUTrace = (uint32_t*)realloc(app->m_CPUTrace, sizeof(uint32_t) * app->m_CPUTraceCapacity);
+	}
+
+	app->m_CPUTrace[app->m_NumCPUTraces++] = pc;
+}
+#endif
 
 uint8_t* readFile(const char* filename, uint32_t& fileSize)
 {
@@ -919,6 +944,10 @@ int main()
 							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], stdInBufLen);
 						}
 					}
+
+#if ENABLE_TRACING
+					tracePush(&app, riscv::cpuGetPC(app.m_CPU));
+#endif
 
 					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_MemoryMap);
 					

@@ -2,7 +2,7 @@
 
 int main()
 {
-    printf("Hello world!\n");
+    printf("Hello world from User Mode!\n");
 
     return 0;
 }

@@ -56,6 +56,13 @@ void taskFreeFileDescriptor(Task* task, int fd)
     desc->m_IsOpen = 0;
 }
 
+void taskFreeAllFileDescriptors(Task* task)
+{
+    // Nothing meaningful to do here at the moment.
+    // TODO: If I implement writing to files, this is a good place to flush any 
+    // pending writes to disk.
+}
+
 FileDescriptor* taskGetFileDescriptor(Task* task, int fd)
 {
     if(fd == FD_INVALID || fd >= TASK_MAX_FILE_DESCRIPTORS) {

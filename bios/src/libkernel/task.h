@@ -23,6 +23,7 @@ typedef struct FileDescriptor
 
 typedef struct Task
 {
+    uint32_t m_Frame[32];
     FileDescriptor m_FileDesc[TASK_MAX_FILE_DESCRIPTORS];
     char m_CWD[PATH_MAX]; // current working directory
     PageTable* m_PageTable;
@@ -39,6 +40,7 @@ int taskGetNextFreeFileDescriptor(Task* task);
 FileDescriptor* taskAllocFileDescriptor(Task* task, int fd);
 void taskFreeFileDescriptor(Task* task, int fd);
 FileDescriptor* taskGetFileDescriptor(Task* task, int fd);
+void taskFreeAllFileDescriptors(Task* task);
 
 int taskGetCurrentWorkingDirectory(Task* task, char* path, size_t maxlen);
 void taskSetCurrentWorkingDirectory(Task* task, const char* path);

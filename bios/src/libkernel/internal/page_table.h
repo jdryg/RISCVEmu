@@ -28,4 +28,6 @@ int pageTableInsert(PageTable* pt, uint32_t va, uint32_t pa, uint32_t r, uint32_
 uint32_t pageTableVPN2PPN(PageTable* pt, uint32_t vpn);
 void* pageTableVA2PA(PageTable* pt, void* va);
 
+PageTableEntry* pageTableGetNextAllocPage(PageTable* pt, PageTableEntry* prev);
+
 #endif

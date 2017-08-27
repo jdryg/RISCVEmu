@@ -152,7 +152,6 @@ void kshutdown()
 
 struct Task* kgettask()
 {
-	// TODO: return the actual current task.
 	if(g_ProgramTask) {
 		return g_ProgramTask;
 	}
@@ -162,9 +161,7 @@ struct Task* kgettask()
 
 int kexec(const char* path, int argc, char** argv)
 {
-	if(g_ProgramTask != 0) {
-		return 0;
-	}
+	kassert(g_ProgramTask == 0, "kexec(): User task already running");
 
 	// Try to open the file for reading.
 	int fd = kopen(path, O_RDONLY);
@@ -269,7 +266,7 @@ int kexec(const char* path, int argc, char** argv)
 	kclose(fd);
 
 	// Allocate 16 pages for the heap
-	const uint32_t numHeapPages = 16;
+	const uint32_t numHeapPages = 4;
 	for(uint32_t i = 0;i < numHeapPages;++i) {
 		void* pagePtr = ramAllocPage(&g_ExternalRAM);
 		pageTableInsert(pageTable, HEAP_START + PAGE_SIZE * i, (uint32_t)pagePtr, 1, 1, 0, 1, 0);
@@ -286,16 +283,43 @@ int kexec(const char* path, int argc, char** argv)
 	}
 	uint32_t stackTop = STACK_BOTTOM + PAGE_SIZE * numStackPages;
 
+	// TODO: Set cwd
 	// TODO: Push program arguments to the program stack.
 	stackTop -= 4;
-	
-	// Store the current PC in main task in order to return here when the program ends (???????)
-	taskSetPC(g_MainTask, halGetPC() + 4);
 
 	g_ProgramTask = task;
 
 	// Switch to U-mode
-	_switchToUMode((uint32_t)pageTable, hdr.e_entry, stackTop);
+	_switchToUMode((uint32_t)pageTable, hdr.e_entry, stackTop, &g_MainTask->m_Frame[0]);
 
+	return 1;
+}
+
+int kkill()
+{
+	kassert(g_ProgramTask != 0, "kkill(): Called when no user task was active.");
+
+	// Deallocate all file descriptors
+	taskFreeAllFileDescriptors(g_ProgramTask);
+
+	// Deallocate all allocated RAM pages including the PageTable itself.
+	PageTableEntry* pte = pageTableGetNextAllocPage(g_ProgramTask->m_PageTable, 0);
+	while(pte) {
+		uint32_t physicalAddr = (pte->m_PhysicalPageNumber << 12);
+//		kmemset((void*)physicalAddr, 0, PAGE_SIZE);
+		ramFreePage(&g_ExternalRAM, (void*)physicalAddr);
+
+		pte = pageTableGetNextAllocPage(g_ProgramTask->m_PageTable, pte);
+	}
+	kmemset(g_ProgramTask->m_PageTable, 0, PAGE_SIZE);
+	ramFreePage(&g_ExternalRAM, g_ProgramTask->m_PageTable);
+
+	// Destroy the task
+	taskDestroy(g_ProgramTask);
+	g_ProgramTask = 0;
+
+	_switchToMMode(&g_MainTask->m_Frame[0]);
+
+	// Unreachable code
 	return 1;
 }

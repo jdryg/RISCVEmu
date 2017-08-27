@@ -13,7 +13,7 @@ int main()
 
     printf("Assigning values to all integers...\n");
     for(int i = 0;i < NUM_ITEMS;++i) {
-        *p++ = i;
+        p[i] = i;
     }
     printf("Done. Freeing memory...\n");
     

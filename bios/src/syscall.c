@@ -17,9 +17,11 @@
 
 void sys_exit(int code)
 {
-	char msg[256];
-	ksprintf(msg, "\nProgram exited with code %d\n", code);
-	kpanic(msg);
+//	char msg[256];
+//	ksprintf(msg, "\nProgram exited with code %d\n", code);
+//	kpanic(msg);
+
+	kkill();
 }
 
 void* sys_brk(void* addr)
@@ -46,6 +48,7 @@ void* sys_brk(void* addr)
 				uint32_t vpn = (vmStart & 0xFFFFF000) >> 12;
 				uint32_t ppn = pageTableVPN2PPN(pt, vpn);
 				kassert(ppn != 0, "sys_brk(): Invalid physical page number");
+				
 				uint32_t remainingPageLen = 4096 - pageOffset;
 				uint32_t zeroLen = remainingPageLen > memSize ? memSize : remainingPageLen;
 
@@ -144,6 +147,7 @@ ssize_t sys_write(int fd, const void* ptr, size_t len)
 	if(pt) {
 		// TODO: What if (ptr, len) spans page boundaries.
 		ptr = (const void*)pageTableVA2PA(pt, (void*)ptr);
+		systrace("- Physical Addr: 0xx%08X\n", ptr);
 	}
 
 	if (sys_isatty(fd)) {

@@ -65,3 +65,18 @@ void* pageTableVA2PA(PageTable* pt, void* va)
 
     return (void*)((ppn << PAGE_SHIFT) | offset);
 }
+
+PageTableEntry* pageTableGetNextAllocPage(PageTable* pt, PageTableEntry* prev)
+{
+    prev = prev ? prev + 1 : &pt->m_PTE[0];
+
+    while((uint32_t)(prev - pt->m_PTE) < 1024) {
+        if(prev->m_Valid) {
+            return prev;
+        }
+
+        ++prev;
+    }
+
+    return 0;
+}

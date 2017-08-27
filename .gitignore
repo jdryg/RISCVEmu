@@ -18,3 +18,5 @@
 /bios/src/bios
 /bios/src/libkernel/*.o
 /bios/src/devices/*.o
+/bin/config.json
+/bios/src/libkernel/internal/*.o
