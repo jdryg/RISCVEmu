@@ -1,15 +1,18 @@
 #include "task.h"
 #include "memory.h"
+#include "malloc.h"
 #include "string.h"
 
-void taskInit(Task* task)
+Task* taskCreate()
 {
+    Task* task = (Task*)kmalloc(sizeof(Task));
     kmemset(task, 0, sizeof(Task));
+    return task;
 }
 
-void taskShutdown(Task* task)
+void taskDestroy(Task* task)
 {
-    // TODO: 
+    kfree(task);
 }
 
 int taskGetNextFreeFileDescriptor(Task* task)
@@ -87,4 +90,19 @@ void taskSetCurrentWorkingDirectory(Task* task, const char* path)
     size_t copyLen = pathLen < PATH_MAX ? pathLen : (PATH_MAX - 1);
     kmemcpy(task->m_CWD, path, copyLen);
     task->m_CWD[copyLen] = '\0';
+}
+
+void taskSetPC(Task* task, uint32_t pc)
+{
+    task->m_PC = pc;
+}
+
+void taskSetPageTable(Task* task, PageTable* pt)
+{
+    task->m_PageTable = pt;
+}
+
+PageTable* taskGetPageTable(Task* task)
+{
+    return task->m_PageTable;
 }

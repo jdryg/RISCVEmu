@@ -23,6 +23,9 @@
 
 #define MSTATUS_MPP_SHIFT   11
 
+#define MSTATUS_BIT_MPP0    11
+#define MSTATUS_BIT_MPP1    12
+
 #define PRIVLEVEL_USER      0
 #define PRIVLEVEL_MACHINE   3
 
@@ -84,4 +87,11 @@ inline void halWriteReg32(uintptr_t physicalAddress, uint32_t val)
 	asm volatile ("csrrc %0, " #reg ", %1" : "=r"(__tmp) : "rK"(bit)); \
 	__tmp; })
 
+#define halReadRegister(reg) ({ unsigned long __tmp; \
+	asm volatile ("mv %0, " #reg : "=r"(__tmp)); \
+	__tmp; })
+
+#define halGetPC() ({ unsigned long __tmp; \
+	asm volatile ("auipc %0, 0" : "=r"(__tmp)); \
+	__tmp; })
 #endif

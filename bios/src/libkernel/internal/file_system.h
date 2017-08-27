@@ -54,5 +54,6 @@ FileSystemFile* fsOpenFile(FileSystem* fs, const char* filename, uint32_t flags)
 int fsCloseFile(FileSystem* fs, FileSystemFile* file);
 int fsReadFile(FileSystem* fs, FileSystemFile* file, void* buf, size_t len);
 int fsEOF(FileSystem* fs, FileSystemFile* file);
+int fsSeekFile(FileSystem* fs, FileSystemFile* file, int offset, int whence);
 
 #endif

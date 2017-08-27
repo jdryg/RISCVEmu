@@ -22,6 +22,7 @@ namespace riscv
 void cpuReset(CPU* cpu, word_t pc, word_t sp)
 {
 	tlbInit(&cpu->m_ITLB, 16);
+	tlbInit(&cpu->m_DTLB, 16);
 
 	cpu->m_NextState.m_PrivLevel = PrivLevel::Machine;
 	cpu->m_NextState.m_IRegs[0] = 0;
@@ -34,11 +35,16 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
-bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t& data, bool isInstruction)
+bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t byteMask, uint32_t& data, bool isInstruction)
 {
-	if (tlb == nullptr) {
+	if (tlb == nullptr || cpuGetPrivLevel(cpu) == PrivLevel::Machine) {
 		// Virtual address is the physical address.
-		return mmRead(mm, virtualAddress, 0xFFFFFFFF, data);
+		if (!mmRead(mm, virtualAddress, byteMask, data)) {
+			cpuRaiseException(cpu, Exception::LoadAccessFault); // Or is it LoadPageFault?
+			return false;
+		}
+
+		return true;
 	}
 
 	// Memory read with a TLB
@@ -47,43 +53,119 @@ bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 	if (tlbResult.m_Hit) {
 		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
 		const uint32_t requiredProtectionFlags = PROTECTION_READ | (isInstruction ? PROTECTION_EXECUTE : 0);
-		if ((pageProtectionFlags & requiredProtectionFlags) != requiredProtectionFlags) {
+		if ((pageProtectionFlags & requiredProtectionFlags) == requiredProtectionFlags) {
 			const uint32_t offset = virtualAddress & kAddressOffsetMask;
 			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
-			return mmRead(mm, physicalAddress, 0xFFFFFFFF, data);
-		} else {
-			RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
+			if (mmRead(mm, physicalAddress, byteMask, data)) {
+				return true;
+			}
 		}
-	} else {
-		// NOTE: If the code below happens in the HW then we can access satp CSR without checking for the current
-		// privilege mode. If it happens in SW we must raise an exception, switch to M-mode and then read the satp.
-		// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
-		// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
-		// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
-		const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
-		if ((satp & SATP_MODE_MASK) == 0) {
-			// No translation needed
-			// TODO: Should this check be moved before TLB lookup?
-			return mmRead(mm, virtualAddress, 0xFFFFFFFF, data);
-		} else {
-			// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
-			const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
-			const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
-			const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
-			PageTableEntry pte;
-			if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
-				RISCV_CHECK(false, "Failed to read physical address %08Xh", pageTableEntryPhysicalAddr);
-			} else {
-				if (!pte.m_Fields.m_Valid) {
-					RISCV_CHECK(false, "Segmentation fault"); // TODO: Raise exception
-				} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
-					RISCV_CHECK(false, "Protection fault"); // TODO: Raise exception
-				} else {
-					RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
-					tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
 
-					// Retry instruction on next tick.
-				}
+		cpuRaiseException(cpu, Exception::LoadAccessFault);
+		return false;
+	}
+	
+	// NOTE: If the code below happens in the HW then we can access satp CSR without checking for the current
+	// privilege mode. If it happens in SW we must raise an exception, switch to M-mode and then read the satp.
+	// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
+	// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
+	// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
+	const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
+	if ((satp & SATP_MODE_MASK) == 0) {
+		// No translation needed
+		// TODO: Should this check be moved before TLB lookup?
+		if (mmRead(mm, virtualAddress, byteMask, data)) {
+			return true;
+		}
+
+		cpuRaiseException(cpu, Exception::LoadAccessFault);
+	} else {
+		// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
+		const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
+		const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
+		PageTableEntry pte;
+		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+			cpuRaiseException(cpu, Exception::LoadAccessFault);
+		} else {
+			if (!pte.m_Fields.m_Valid) {
+				cpuRaiseException(cpu, Exception::LoadPageFault);
+			} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
+				cpuRaiseException(cpu, Exception::LoadAccessFault);
+			} else {
+				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
+				tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+				
+				// Retry instruction on next tick.
+			}
+		}
+	}
+
+	return false;
+}
+
+bool cpuMemWrite(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t byteMask, uint32_t data)
+{
+	if (tlb == nullptr || cpuGetPrivLevel(cpu) == PrivLevel::Machine) {
+		// Virtual address is the physical address.
+		if (!mmWrite(mm, virtualAddress, byteMask, data)) {
+			cpuRaiseException(cpu, Exception::StoreAccessFault);
+			return false;
+		}
+
+		return true;
+	}
+
+	// Memory write with a TLB
+	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	TLBLookupResult tlbResult = tlbLookup(tlb, virtualPageNumber);
+	if (tlbResult.m_Hit) {
+		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
+		const uint32_t requiredProtectionFlags = PROTECTION_WRITE;
+		if ((pageProtectionFlags & requiredProtectionFlags) == requiredProtectionFlags) {
+			const uint32_t offset = virtualAddress & kAddressOffsetMask;
+			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
+			if (mmWrite(mm, physicalAddress, byteMask, data)) {
+				return true;
+			}
+		}
+
+		cpuRaiseException(cpu, Exception::StoreAccessFault);
+		return false;
+	}
+
+	// NOTE: If the code below happens in the HW then we can access satp CSR without checking for the current
+	// privilege mode. If it happens in SW we must raise an exception, switch to M-mode and then read the satp.
+	// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
+	// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
+	// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
+	const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
+	if ((satp & SATP_MODE_MASK) == 0) {
+		// No translation needed
+		// TODO: Should this check be moved before TLB lookup?
+		if (mmWrite(mm, virtualAddress, byteMask, data)) {
+			return true;
+		}
+
+		cpuRaiseException(cpu, Exception::StoreAccessFault);
+	} else {
+		// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
+		const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
+		const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
+		PageTableEntry pte;
+		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+			cpuRaiseException(cpu, Exception::LoadAccessFault);
+		} else {
+			if (!pte.m_Fields.m_Valid) {
+				cpuRaiseException(cpu, Exception::StorePageFault);
+			} else if (pte.m_Fields.m_Write != 1) {
+				cpuRaiseException(cpu, Exception::StoreAccessFault);
+			} else {
+				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
+				tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+
+				// Retry instruction on next tick.
 			}
 		}
 	}
@@ -98,19 +180,18 @@ bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 {
 	const uint32_t pc = cpuGetPC(cpu);
+	uint32_t nextPC = pc + 4;
 
 	Instruction instr;
-	if (!cpuMemRead(cpu, mm, &cpu->m_ITLB, pc, instr.m_Word, true)) {
-		return; // Exception or retry instruction after filling TLB.
+	if (!cpuMemRead(cpu, mm, &cpu->m_ITLB, pc, 0xFFFFFFFF, instr.m_Word, true)) {
+		goto next_tick; // Exception or retry instruction after filling TLB.
 	}
-	
-	cpuSetPC(cpu, pc + 4);
 
 	// Opcode is common to all instruction types.
 	const uint32_t opcode = instr.R.opcode;
 	if ((opcode & 3) != 3) {
 		cpuRaiseException(cpu, Exception::IllegalInstruction);
-		return;
+		goto next_tick;
 	}
 
 	switch (opcode) {
@@ -119,22 +200,22 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		const uint32_t loadSize = instr.I.funct3 & 0x03;
 		if (loadSize > 2) {
 			cpuRaiseException(cpu, Exception::IllegalInstruction);
+			goto next_tick;
 		} else {
 			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << loadSize) << 3));
 			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.I.rs1) + immI(instr);
 
-			// TODO: Address translation
 			uint32_t val;
-			if (!mmRead(mm, virtualAddr, byteMask, val)) {
-				cpuRaiseException(cpu, Exception::LoadAccessFault); // Or is it LoadPageFault?
+			if (!cpuMemRead(cpu, mm, &cpu->m_DTLB, virtualAddr, byteMask, val, false)) {
+				goto next_tick;
+			}
+
+			const uint32_t zeroExtend = instr.I.funct3 & 0x04;
+			if (zeroExtend) {
+				cpuSetRegister(cpu, instr.I.rd, val);
 			} else {
-				const uint32_t zeroExtend = instr.I.funct3 & 0x04;
-				if (zeroExtend) {
-					cpuSetRegister(cpu, instr.I.rd, val);
-				} else {
-					const uint32_t signBitPos = ((1 << loadSize) << 3) - 1;
-					cpuSetRegister(cpu, instr.I.rd, sext(val, signBitPos));
-				}
+				const uint32_t signBitPos = ((1 << loadSize) << 3) - 1;
+				cpuSetRegister(cpu, instr.I.rd, sext(val, signBitPos));
 			}
 		}
 	}
@@ -189,14 +270,15 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		const uint32_t storeSize = instr.S.funct3;
 		if (storeSize > 2) {
 			cpuRaiseException(cpu, Exception::IllegalInstruction);
+			goto next_tick;
 		} else {
 			const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << storeSize) << 3));
 			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.S.rs1) + immS(instr);
 			const uint32_t val = cpuGetRegister(cpu, instr.S.rs2);
 
 			// TODO: Address translation
-			if (!mmWrite(mm, virtualAddr, byteMask, val)) {
-				cpuRaiseException(cpu, Exception::StoreAccessFault); // Or is it StorePageFault?
+			if (!cpuMemWrite(cpu, mm, &cpu->m_DTLB, virtualAddr, byteMask, val)) {
+				goto next_tick;
 			}
 		}
 	}
@@ -264,26 +346,28 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 			break;
 		default:
 			cpuRaiseException(cpu, Exception::IllegalInstruction);
-			break;
+			goto next_tick;
 		}
 
 		if (jump) {
-			cpuSetPC(cpu, pc + immB(instr));
+			nextPC = pc + immB(instr);
 		}
 	}
 		break;
 	case Opcode::JALR:
 		if (instr.I.funct3 != 0) {
 			cpuRaiseException(cpu, Exception::IllegalInstruction);
+			goto next_tick;
 		} else {
 			// The JAL and JALR instructions will generate a misaligned instruction fetch exception if the target
 			// address is not aligned to a four-byte boundary.
 			const uint32_t addr = (cpuGetRegister(cpu, instr.I.rs1) + immI(instr));
 			if (addr & 0x03) {
 				cpuRaiseException(cpu, Exception::InstructionAddressMisaligned);
+				goto next_tick;
 			} else {
 				cpuSetRegister(cpu, instr.I.rd, pc + 4);
-				cpuSetPC(cpu, addr & 0xFFFFFFFE);
+				nextPC = addr & 0xFFFFFFFE;
 			}
 		}
 		break;
@@ -294,9 +378,10 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		const uint32_t addr = pc + immJ(instr);
 		if (addr & 0x03) {
 			cpuRaiseException(cpu, Exception::InstructionAddressMisaligned);
+			goto next_tick;
 		} else {
 			cpuSetRegister(cpu, instr.J.rd, pc + 4);
-			cpuSetPC(cpu, addr);
+			nextPC = addr;
 		}
 	}
 		break;
@@ -305,28 +390,34 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		case 0: // ECALL, EBREAK, XRET
 			if (instr.I.rd != 0 || instr.I.rs1 != 0) {
 				cpuRaiseException(cpu, Exception::IllegalInstruction);
+				goto next_tick;
 			} else {
 				switch (instr.I.imm) {
 				case 0: // ECALL
 					if (cpuGetPrivLevel(cpu) == PrivLevel::User) {
 						cpuRaiseException(cpu, Exception::EnvCallFromUser);
+						goto next_tick;
 					} else {
 						cpuRaiseException(cpu, Exception::EnvCallFromMachine);
+						goto next_tick;
 					}
 					break;
 				case 1: // EBREAK
 					cpuRaiseException(cpu, Exception::Breakpoint);
-					break;
+					goto next_tick;
 				default:
 					if ((instr.I.imm & 0x1F) == 2) {
 						// XRET
 						if ((instr.I.imm >> 8) > cpuGetPrivLevel(cpu)) {
 							cpuRaiseException(cpu, Exception::IllegalInstruction);
+							goto next_tick;
 						} else {
 							cpuReturnFromException(cpu);
+							goto next_tick;
 						}
 					} else {
 						cpuRaiseException(cpu, Exception::IllegalInstruction);
+						goto next_tick;
 					}
 					break;
 				}
@@ -375,10 +466,12 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		break;
 	default:
 		cpuRaiseException(cpu, Exception::IllegalInstruction);
-		break;
+		goto next_tick;
 	}
 
 	// Update counters
+#if 0 
+	// TODO: How should those be updated when running in U-mode?
 	const uint32_t countersEnabled = cpuGetCSR(cpu, CSR::mcounteren);
 	if (countersEnabled & MCOUNTEREN_CY) {
 		cpuIncCounter64(cpu, CSR::mcycle, 1);
@@ -388,8 +481,12 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 		cpuIncCounter64(cpu, CSR::minstret, 1);
 		cpuShadowCSR64(cpu, CSR::instret, CSR::minstret);
 	}
+#endif
 
 	// Switch states
+	cpuSetPC(cpu, nextPC);
+
+next_tick:
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 }

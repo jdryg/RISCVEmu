@@ -217,6 +217,7 @@ struct CPU
 	CPUState m_State;
 	CPUState m_NextState;
 	TLB m_ITLB;
+	TLB m_DTLB;
 };
 
 union Instruction

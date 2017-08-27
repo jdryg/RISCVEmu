@@ -2,7 +2,7 @@ TARGET = bios
 
 ASM_SRCS += ./entry.S
 
-C_SRCS += ./main.c
+C_SRCS += ./shell.c
 C_SRCS += ./init.c
 C_SRCS += ./syscall.c
 C_SRCS += ./exception_handler.c
@@ -27,16 +27,20 @@ C_SRCS += ./libkernel/malloc.c
 C_SRCS += ./libkernel/string.c
 C_SRCS += ./libkernel/ctype.c
 C_SRCS += ./libkernel/fs.c
-C_SRCS += ./libkernel/file_system.c
 C_SRCS += ./libkernel/task.c
+C_SRCS += ./libkernel/internal/file_system.c
+C_SRCS += ./libkernel/internal/elf.c
+C_SRCS += ./libkernel/internal/page_table.c
 HEADERS += ./libkernel/kernel.h
 HEADERS += ./libkernel/memory.h
 HEADERS += ./libkernel/stdio.h
 HEADERS += ./libkernel/malloc.h
 HEADERS += ./libkernel/string.h
 HEADERS += ./libkernel/ctype.h
-HEADERS += ./libkernel/file_system.h
 HEADERS += ./libkernel/task.h
+HEADERS += ./libkernel/internal/file_system.h
+HEADERs += ./libkernel/internal/elf.h
+HEADERS += ./libkernel/internal/page_table.h
 
 LINKER_SCRIPT := ./link.lds
 
@@ -63,6 +67,6 @@ default: $(TARGET)
 all: default
 
 clean:
-	rm -f $(TARGET) *.o ./*.o ./libkernel/*.o ./devices/*.o
+	rm -f $(TARGET) *.o ./*.o ./libkernel/*.o ./libkernel/internal/*.o ./devices/*.o
 
 .PHONY: clean all default

@@ -2,6 +2,8 @@
 #include "libkernel/kernel.h" // kinit()/kpanic()
 #include "libkernel/stdio.h" // kprintf()/kputs()/kmount()
 
+extern int shell_main();
+
 void _init()
 {
 	kinit();
@@ -13,8 +15,7 @@ void _init()
 
 	kchdir("/");
 
-	extern int main();
-	int res = main();
+	int res = shell_main();
 
 	kshutdown();
 	kpanic("HALT");

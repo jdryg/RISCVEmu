@@ -4,6 +4,7 @@
 #include "console.h"
 #include "debugger.h"
 #include "debug.h"
+#include "config.h"
 
 #include <nfd/nfd.h>
 #include <bx/string.h>
@@ -22,6 +23,9 @@
 #include <memory.h>
 
 #define MAX_STDIN_BUFFER       256
+
+#define CONSOLE_COLS           80
+#define CONSOLE_ROWS           25
 
 #define INIT_ERR_SUCCESS       0
 #define INIT_ERR_NO_MEMORY     1
@@ -50,6 +54,7 @@ struct MemoryDeviceDesc
 
 struct App
 {
+	Config m_Config;
 	GLFWwindow* m_GLFWWindow;
 	riscv::CPU* m_CPU;
 	riscv::MemoryMap* m_MemoryMap;
@@ -61,7 +66,6 @@ struct App
 
 	uint8_t* m_KernelELFData;
 	uint32_t m_KernelELFSize;
-	int m_RAMSizeMB;
 	int m_InitError;
 	bool m_ScrollToPC;
 	uint32_t m_NumCPUSteps;
@@ -83,7 +87,6 @@ struct App
 		, m_KernelELFData(nullptr)
 		, m_KernelELFSize(0)
 		, m_InitError(INIT_ERR_SUCCESS)
-		, m_RAMSizeMB(4)
 		, m_ScrollToPC(true)
 		, m_NumCPUSteps(0)
 		, m_Run(false)
@@ -96,6 +99,10 @@ struct App
 		, m_MemDevicesComboStr(nullptr)
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
+		m_Config.m_ForceReloadKernelELF = false;
+		m_Config.m_KernelELFFile[0] = '\0';
+		m_Config.m_RAMSizeMB = 4;
+		m_Config.m_SimSpeed = 1000;
 	}
 
 	~App()
@@ -127,7 +134,7 @@ uint8_t* readFile(const char* filename, uint32_t& fileSize)
 
 int initEmulator(App* app)
 {
-	const uint32_t ramSize = (uint32_t)app->m_RAMSizeMB << 20;
+	const uint32_t ramSize = (uint32_t)app->m_Config.m_RAMSizeMB << 20;
 
 	// Create memory map
 	riscv::MemoryMap* mm = riscv::mmCreate();
@@ -165,7 +172,7 @@ int initEmulator(App* app)
 	app->m_CPU = cpu;
 	app->m_MemoryMap = mm;
 	app->m_ConsoleUART = consoleUART;
-	app->m_Console = consoleCreate(40, 25);
+	app->m_Console = consoleCreate(CONSOLE_COLS, CONSOLE_ROWS);
 	app->m_Dbg = dbgCreate();
 	app->m_ScrollToPC = true;
 	app->m_Run = false;
@@ -344,13 +351,12 @@ void doWin_Setup(App* app)
 		if (!app->m_CPU) {
 			if (ImGui::CollapsingHeader("System configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::PushItemWidth(-60.0f);
-				ImGui::SliderInt("RAM [MB]", &app->m_RAMSizeMB, 1, 16);
+				ImGui::SliderInt("RAM [MB]", &app->m_Config.m_RAMSizeMB, 1, 16);
 			}
 		}
 
 		if (ImGui::CollapsingHeader("Kernel/BIOS", ImGuiTreeNodeFlags_DefaultOpen)) {
-			static char elfFilename[256] = { 0 }; // TODO: Move to App?
-			doWin_Setup_ELFFile("##kernel", elfFilename, 256, app->m_KernelELFData, app->m_KernelELFSize, !app->m_CPU);
+			doWin_Setup_ELFFile("##kernel", &app->m_Config.m_KernelELFFile[0], BX_COUNTOF(app->m_Config.m_KernelELFFile), app->m_KernelELFData, app->m_KernelELFSize, !app->m_CPU);
 		}
 
 		if (app->m_CPU) {
@@ -402,10 +408,8 @@ void doWin_Debugger(App* app)
 					ImGui::SetTooltip("Break");
 				}
 			} else {
-				static int ticksPerFrame = 1;
-
 				if (ImGui::Button(ICON_FA_PLAY)) {
-					app->m_NumCPUSteps = ticksPerFrame;
+					app->m_NumCPUSteps = app->m_Config.m_SimSpeed;
 					app->m_Run = true;
 				}
 				if (ImGui::IsItemHovered()) {
@@ -430,7 +434,7 @@ void doWin_Debugger(App* app)
 
 				ImGui::SameLine();
 				ImGui::PushItemWidth(-80.0f);
-				ImGui::DragInt("Ticks/frame", &ticksPerFrame, 1.0f, 1, 10000);
+				ImGui::DragInt("Ticks/frame", &app->m_Config.m_SimSpeed, 1.0f, 1, 10000);
 
 				if (ImGui::Button("Go to PC")) {
 					app->m_ScrollToPC = true;
@@ -638,7 +642,7 @@ void doWin_Breakpoints(App* app)
 
 void doWin_Terminal(App* app)
 {
-	ImGui::SetNextWindowSize(ImVec2(350, 280), ImGuiSetCond_Always);
+	ImGui::SetNextWindowSize(ImVec2(CONSOLE_COLS * 8 + 30, CONSOLE_ROWS * 8 + 80), ImGuiSetCond_Always);
 	ImGui::SetNextWindowPos(ImVec2(0, 440), ImGuiSetCond_FirstUseEver);
 
 	bool opened = (app->m_WinVis & UI_WIN_TERMINAL) != 0;
@@ -659,10 +663,10 @@ void doWin_Terminal(App* app)
 				ImVec2 cursor = ImGui::GetCursorScreenPos();
 				cursor += ImVec2(1.0f, 1.0f);
 
-				for (uint32_t i = 0; i < 25; ++i) {
+				for (uint32_t i = 0; i < CONSOLE_ROWS; ++i) {
 					char row[256];
-					bx::memCopy(row, &consoleBuffer[i * 40], 40);
-					row[40] = '\0';
+					bx::memCopy(row, &consoleBuffer[i * CONSOLE_COLS], CONSOLE_COLS);
+					row[CONSOLE_COLS] = '\0';
 					ImGui::Text(row);
 				}
 
@@ -799,8 +803,8 @@ void ImGui_InitStyle()
 
 	style.Colors[ImGuiCol_Text] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-	//	style.Colors[ImGuiCol_TextHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-	//	style.Colors[ImGuiCol_TextActive] = ImVec4(1.00f, 1.00f, 0.00f, 1.00f);
+//	style.Colors[ImGuiCol_TextHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+//	style.Colors[ImGuiCol_TextActive] = ImVec4(1.00f, 1.00f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
 	style.Colors[ImGuiCol_ChildWindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 	style.Colors[ImGuiCol_Border] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
@@ -840,516 +844,19 @@ void ImGui_InitStyle()
 	style.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-	//	style.Colors[ImGuiCol_TooltipBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
+//	style.Colors[ImGuiCol_TooltipBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
 	style.Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
 }
 
-#if 0
-#pragma pack(push, 1)
-struct PartitionTableEntry
-{
-	uint8_t m_Status;
-	uint8_t m_FirstHead;
-	uint16_t m_FirstSector : 5;
-	uint16_t m_FirstCylinder : 11;
-	uint8_t m_PartitionType;
-	uint8_t m_LastHead;
-	uint16_t m_LastSector : 5;
-	uint16_t m_LastCylinder : 11;
-	uint32_t m_FirstSectorLBA;
-	uint32_t m_NumSectors;
-};
-#pragma pack(pop)
-
-// https://staff.washington.edu/dittrich/misc/fatgen103.pdf
-#pragma pack(push, 1)
-struct BIOSParamBlock
-{
-	uint8_t m_JmpBoot[3]; // 0xE9 0xXX 0xXX
-	uint8_t m_OEMName[8];
-	uint16_t m_BytesPerSector;
-	uint8_t m_SectorsPerCluster;
-	uint16_t m_ReservedSectorCount;
-	uint8_t m_NumFATs;
-	uint16_t m_RootEntriesCount;
-	uint16_t m_TotalSectors16;
-	uint8_t m_Media;
-	uint16_t m_FATSize16;
-	uint16_t m_SectorsPerTrack;
-	uint16_t m_NumHeads;
-	uint32_t m_HiddenSectors;
-	uint32_t m_TotalSectors32;
-
-	union FAT {
-		struct FAT16
-		{
-			uint8_t m_DriveNumber;
-			uint8_t m_Reserved1;
-			uint8_t m_BootSig;
-			uint32_t m_VolID;
-			uint8_t m_VolLab[11];
-			uint8_t m_FileSysType[8];
-		} FAT16;
-
-		struct FAT32
-		{
-			uint32_t m_FATSize32;
-			uint16_t m_ExtFlags;
-			uint16_t m_FSVer;
-			uint32_t m_RootClus;
-			uint16_t m_FSInfo;
-			uint16_t m_BkBootSec;
-			uint8_t m_Reserved[8];
-			uint8_t m_DriveNumber;
-			uint8_t m_Reserved1;
-			uint8_t m_BootSig;
-			uint32_t m_VolID;
-			uint8_t m_VolLab[11];
-			uint8_t m_FileSysType[8];
-		} FAT32;
-	} FAT;
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-struct DirectoryEntry
-{
-	uint8_t m_Filename[8];
-	uint8_t m_Extension[3];
-	uint8_t m_Attrs;
-	uint8_t m_Reserved[10];
-	uint16_t m_LastUpdateTime;
-	uint16_t m_LastDateTime;
-	uint16_t m_StartClusterNumber;
-	uint32_t m_FileSize;
-};
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-struct LongDirectoryEntry
-{
-	uint8_t m_Order;
-	uint16_t m_Name1[5];
-	uint8_t m_Attrs; // Must be ATTR_LONG_NAME
-	uint8_t m_Type;
-	uint8_t m_Checksum;
-	uint16_t m_Name2[6];
-	uint16_t m_FirstClusterLow; // Should be 0
-	uint16_t m_Name3[2];
-};
-#pragma pack(pop)
-
-#define ATTR_READ_ONLY 0x01
-#define ATTR_HIDDEN    0x02
-#define ATTR_SYSTEM    0x04
-#define ATTR_VOLUME_ID 0x08
-#define ATTR_DIRECTORY 0x10
-#define ATTR_ARCHIVE   0x20
-#define ATTR_LONG_NAME (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID)
-#define ATTR_LONG_NAME_MASK (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID | ATTR_DIRECTORY | ATTR_ARCHIVE)
-
-#define LONG_ENTRY_ORDER_MASK 0x3F
-#define LAST_LONG_ENTRY 0x40
-
-struct FATType
-{
-	enum Enum : uint32_t
-	{
-		FAT12 = 0,
-		FAT16 = 1,
-		FAT32 = 2,
-		Unknown = 0xFFFFFFFF
-	};
-};
-
-void vhdReadSector(riscv::Device* vhd, uint32_t lba, uint8_t* sectorData)
-{
-	uint16_t* dst = (uint16_t*)&sectorData[0];
-	vhd->write(vhd, 6 * sizeof(uint32_t), 0x000000FF, lba >> 24); // LBA[24:27]
-	vhd->write(vhd, 2 * sizeof(uint32_t), 0x000000FF, 1); // sector count
-	vhd->write(vhd, 3 * sizeof(uint32_t), 0x000000FF, lba & 0x000000FF); // LBA[0:7]
-	vhd->write(vhd, 4 * sizeof(uint32_t), 0x000000FF, (lba >> 8) & 0x000000FF); // LBA[8:15]
-	vhd->write(vhd, 5 * sizeof(uint32_t), 0x000000FF, (lba >> 16) & 0x000000FF); // LBA[16:23]
-	vhd->write(vhd, 7 * sizeof(uint32_t), 0x000000FF, 0x20); // READ SECTORS command
-	
-	uint32_t status;
-	do {
-		status = 0; // In case read fails
-		vhd->read(vhd, 7 * sizeof(uint32_t), 0x000000FF, status);
-	} while (!(status & 0x08));
-
-	for (uint32_t i = 0; i < 256; ++i) {
-		uint32_t halfWord;
-		vhd->read(vhd, 0 * sizeof(uint32_t), 0x0000FFFF, halfWord);
-		*dst++ = (uint16_t)halfWord;
-	}
-}
-
-void sectorFromCluster(uint32_t N, BIOSParamBlock* bpb, uint32_t& secNum, uint32_t& entOff)
-{
-	// Assume FAT16
-	const uint32_t FATOffset = N << 1;
-	secNum = bpb->m_ReservedSectorCount + (FATOffset / bpb->m_BytesPerSector);
-	entOff = FATOffset % bpb->m_BytesPerSector;
-}
-
-struct FileSystem
-{
-	// Constants
-	riscv::Device* m_VHD;
-	PartitionTableEntry m_PTE;
-	FATType::Enum m_FATType;
-	uint32_t m_FATSize;
-	uint32_t m_FirstRootDirSector_abs;
-	uint32_t m_NumRootDirSectors;
-	uint32_t m_FirstDataSector_abs;
-	uint32_t m_NumDataSectors;
-	uint32_t m_TotalSectors;
-	uint32_t m_NumClusters;
-	uint32_t m_NumSectorsPerCluster;
-
-	// Run-time
-	uint32_t m_FirstCWDSector_abs;
-	uint8_t m_CachedSectorData[512];
-	uint32_t m_CachedSectorID;
-};
-
-struct FileSystemDirEnt
-{
-	uint32_t m_FirstDirEntryID;
-	DirectoryEntry m_DirEntry;
-	char m_FilenameLong[256];
-};
-
-struct FileSystemDir
-{
-	// NOTE: The data returned by readdir() may be overwritten by subsequent calls to readdir() for the same directory stream.
-	// https://linux.die.net/man/3/readdir
-	FileSystemDirEnt m_CurDirEntry;
-	uint32_t m_FirstSector_abs;
-	uint32_t m_NextDirEntryID;
-};
-
-FileSystem* fsInit(riscv::Device* vhd, const PartitionTableEntry* pte)
-{
-	// Read the first partition sector.
-	uint8_t bootSector[512];
-	vhdReadSector(vhd, pte->m_FirstSectorLBA, bootSector);
-
-	BIOSParamBlock* bpb = (BIOSParamBlock*)&bootSector[0];
-
-	// FAT type determination (see pdf).
-	uint32_t rootDirSectors = ((bpb->m_RootEntriesCount * 32) + (bpb->m_BytesPerSector - 1)) / bpb->m_BytesPerSector;
-	uint32_t FATsz = bpb->m_FATSize16 != 0 ? bpb->m_FATSize16 : bpb->FAT.FAT32.m_FATSize32;
-	uint32_t totalSec = bpb->m_TotalSectors16 != 0 ? bpb->m_TotalSectors16 : bpb->m_TotalSectors32;
-	uint32_t dataSec = totalSec - (bpb->m_ReservedSectorCount + (bpb->m_NumFATs * FATsz) + rootDirSectors);
-	uint32_t countOfClusters = dataSec / bpb->m_SectorsPerCluster;
-
-	FATType::Enum fatType = FATType::Unknown;
-	if (countOfClusters < 4085) {
-		fatType = FATType::FAT12;
-	} else if (countOfClusters < 65525) {
-		fatType = FATType::FAT16;
-	} else {
-		fatType = FATType::FAT32;
-	}
-
-	if (fatType != FATType::FAT16) {
-		return nullptr; // Cannot handle any other type atm.
-	}
-
-	uint32_t firstRootDirSectorRel = bpb->m_ReservedSectorCount + (bpb->m_NumFATs * FATsz);
-	uint32_t firstRootDirSectorAbs = pte->m_FirstSectorLBA + firstRootDirSectorRel;
-	uint32_t firstDataSectorRel = bpb->m_ReservedSectorCount + (bpb->m_NumFATs * FATsz) + rootDirSectors;
-	uint32_t firstDataSectorAbs = pte->m_FirstSectorLBA + firstDataSectorRel;
-
-	FileSystem* fs = (FileSystem*)malloc(sizeof(FileSystem));
-	fs->m_VHD = vhd;
-	memcpy(&fs->m_PTE, pte, sizeof(PartitionTableEntry));
-	fs->m_FATType = fatType;
-	fs->m_FATSize = FATsz;
-	fs->m_FirstRootDirSector_abs = firstRootDirSectorAbs;
-	fs->m_NumRootDirSectors = rootDirSectors;
-	fs->m_FirstDataSector_abs = firstDataSectorAbs;
-	fs->m_NumDataSectors = dataSec;
-	fs->m_TotalSectors = totalSec;
-	fs->m_NumClusters = countOfClusters;
-	fs->m_NumSectorsPerCluster = bpb->m_SectorsPerCluster;
-
-	// Set the current working directory to be the root
-	fs->m_FirstCWDSector_abs = firstRootDirSectorAbs;
-	fs->m_CachedSectorID = ~0u;
-
-	return fs;
-}
-
-void dirEntFilename83(const DirectoryEntry* de, char* fn)
-{
-	const char* name = (const char*)de->m_Filename;
-	const char* ext = (const char*)de->m_Extension;
-
-	uint32_t l = 8;
-	if (name[0] == 0x05) {
-		*fn++ = (uint8_t)0xE5;
-		name++;
-		--l;
-	}
-
-	for (uint32_t i = 0; i < l; ++i) {
-		if (*name == ' ') {
-			break;
-		}
-
-		*fn++ = *name++;
-	}
-
-	if (*ext != ' ') {
-		*fn++ = '.';
-		*fn++ = *ext++;
-		*fn++ = *ext++;
-		*fn++ = *ext++;
-	}
-
-	*fn = '\0';
-}
-
-
-uint8_t* fsReadSector(FileSystem* fs, uint32_t sector_abs)
-{
-	if (fs->m_CachedSectorID != sector_abs) {
-		vhdReadSector(fs->m_VHD, sector_abs, &fs->m_CachedSectorData[0]);
-		fs->m_CachedSectorID = sector_abs;
-	}
-
-	return fs->m_CachedSectorData;
-}
-
-FileSystemDir* fsOpenDir(FileSystem* fs, const char* path)
-{
-	// TODO: Only opening the current working directory is supported atm.
-	if (strcmp(path, ".")) {
-		return nullptr;
-	}
-
-	FileSystemDir* dir = (FileSystemDir*)malloc(sizeof(FileSystemDir));
-	memset(&dir->m_CurDirEntry, 0, sizeof(FileSystemDirEnt));
-	dir->m_FirstSector_abs = fs->m_FirstCWDSector_abs;
-	dir->m_NextDirEntryID = 0;
-
-	// TODO: On error set errno and return null. http://man7.org/linux/man-pages/man3/opendir.3.html
-
-	return dir;
-}
-
-int fsCloseDir(FileSystem* /*fs*/, FileSystemDir* dir)
-{
-	free(dir);
-	// TODO: On error set errno. http://man7.org/linux/man-pages/man3/closedir.3.html
-	return 0;
-}
-
-FileSystemDirEnt* fsReadDir(FileSystem* fs, FileSystemDir* dir)
-{
-	FileSystemDirEnt* dirEnt = &dir->m_CurDirEntry;
-	dirEnt->m_FilenameLong[0] = 0;
-	dirEnt->m_FirstDirEntryID = dir->m_NextDirEntryID;
-
-	// Read the directory's sector
-	const uint32_t sectorSize = 512;
-	const uint32_t numEntriesPerSector = sectorSize / sizeof(DirectoryEntry);
-
-//	char* longFilenamePtr = dirEnt->m_FilenameLong;
-	while (true) {
-		const uint32_t relSectorID = dir->m_NextDirEntryID / numEntriesPerSector;
-		const uint32_t relDirEntryID = dir->m_NextDirEntryID % numEntriesPerSector;
-		uint8_t* sectorData = fsReadSector(fs, dir->m_FirstSector_abs + relSectorID); // Cache
-
-		DirectoryEntry* de = (DirectoryEntry*)&sectorData[relDirEntryID * sizeof(DirectoryEntry)];
-		if (de->m_Filename[0] == 0xE5) {
-			// DirectoryEntry is free. Continue to the next one.
-			++dir->m_NextDirEntryID;
-			continue;
-		} else if (de->m_Filename[0] == 0x00) {
-			// DirectoryEntry is free and there's no other DEs after that
-			break;
-		}
-
-		// Check for long name entries first
-		if ((de->m_Attrs & ATTR_LONG_NAME_MASK) == ATTR_LONG_NAME) {
-			LongDirectoryEntry* lde = (LongDirectoryEntry*)de;
-
-			const uint32_t startID = ((lde->m_Order & LONG_ENTRY_ORDER_MASK) - 1) * 13;
-			char* longFilenamePtr = &dirEnt->m_FilenameLong[startID];
-
-			for (uint32_t i = 0; i < 5; ++i) { *longFilenamePtr++ = (uint8_t)lde->m_Name1[i]; }
-			for (uint32_t i = 0; i < 6; ++i) { *longFilenamePtr++ = (uint8_t)lde->m_Name2[i]; }
-			for (uint32_t i = 0; i < 2; ++i) { *longFilenamePtr++ = (uint8_t)lde->m_Name3[i]; }
-
-			if (lde->m_Order & LAST_LONG_ENTRY) {
-				// Null-terminate filename because:
-				// A name that fits exactly in a n long directory entries (i.e. is an integer multiple of 13) is 
-				// not NUL terminated and not padded with 0xFFFFs.
-				*longFilenamePtr = '\0';
-			}
-
-			++dir->m_NextDirEntryID;
-			continue;
-		} else {
-			if (de->m_Attrs & ATTR_VOLUME_ID) {
-				// TODO: Filename holds the Volume Label in case I need it somewhere.
-				++dir->m_NextDirEntryID;
-				continue;
-			}
-
-			if (dirEnt->m_FilenameLong[0] == '\0') {
-				// No long filename. Set the short filename as the long filename of the file.
-				dirEntFilename83(de, dirEnt->m_FilenameLong);
-			}
-		}
-
-		memcpy(&dirEnt->m_DirEntry, de, sizeof(DirectoryEntry));
-
-		++dir->m_NextDirEntryID;
-
-		return dirEnt;
-	}
-
-	return nullptr;
-}
-
-int fsChangeDir(FileSystem* fs, const char* path)
-{
-	// TODO: Only paths relative to the cwd are allowed atm.
-	const char* pathPtr = path;
-	if (pathPtr[0] != '.') {
-		return -1;
-	}
-	pathPtr = strchr(pathPtr, '/');
-	if (!pathPtr) {
-		return 0; // Already there.
-	}
-	++pathPtr; // skip '/'
-
-	// Keep the actual cwd in case something goes wrong.
-	const uint32_t cwdSector_abs = fs->m_FirstCWDSector_abs;
-
-	// Scan the path one folder at a time and change the cwd.
-	while (true) {
-		const char* nextSlash = strchr(pathPtr, '/');
-		const uint32_t folderNameLen = nextSlash ? (uint32_t)(nextSlash - pathPtr) : (uint32_t)strlen(pathPtr);
-
-		FileSystemDir* cwd = fsOpenDir(fs, ".");
-		if (!cwd) {
-			fs->m_FirstCWDSector_abs = cwdSector_abs;
-			return -1;
-		}
-
-		bool found = false;
-		FileSystemDirEnt subfolderDirEnt = { 0 };
-		FileSystemDirEnt* fsde;
-		while ((fsde = fsReadDir(fs, cwd)) != 0) {
-			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
-			if (attrs & ATTR_DIRECTORY) {
-				if (!strncmp(fsde->m_FilenameLong, pathPtr, folderNameLen)) {
-					memcpy(&subfolderDirEnt, fsde, sizeof(FileSystemDirEnt));
-					found = true;
-					break;
-				}
-			}
-		}
-
-		fsCloseDir(fs, cwd);
-
-		if (!found) {
-			fs->m_FirstCWDSector_abs = cwdSector_abs;
-			return -1;
-		}
-
-		// fsde holds the DirectoryEntry for the subfolder.
-		const uint32_t clustNum = subfolderDirEnt.m_DirEntry.m_StartClusterNumber;
-		const uint32_t firstClusterSector_abs = clustNum == 0 ? fs->m_FirstRootDirSector_abs : ((clustNum - 2) * fs->m_NumSectorsPerCluster) + fs->m_FirstDataSector_abs;
-		printf("** CWD sector: %u (%u)\n", firstClusterSector_abs, clustNum);
-		fs->m_FirstCWDSector_abs = firstClusterSector_abs;
-
-		if (!nextSlash) {
-			break;
-		}
-
-		pathPtr = nextSlash;
-	}
-
-	return 0;
-}
-
-void listCWD(FileSystem* fs)
-{
-	FileSystemDir* rootDir = fsOpenDir(fs, ".");
-	if (rootDir) {
-		FileSystemDirEnt* fsde;
-		while ((fsde = fsReadDir(fs, rootDir)) != 0) {
-			const uint8_t attrs = fsde->m_DirEntry.m_Attrs;
-			char attrStr[6] = "-----";
-			if (attrs & ATTR_ARCHIVE) {
-				attrStr[0] = 'a';
-			}
-			if (attrs & ATTR_DIRECTORY) {
-				attrStr[1] = 'd';
-			}
-			if (attrs & ATTR_HIDDEN) {
-				attrStr[2] = 'h';
-			}
-			if (attrs & ATTR_READ_ONLY) {
-				attrStr[3] = 'r';
-			}
-			if (attrs & ATTR_SYSTEM) {
-				attrStr[4] = 's';
-			}
-
-			printf("%s %-016u %s\n", attrStr, fsde->m_DirEntry.m_FileSize, fsde->m_FilenameLong);
-		}
-
-		fsCloseDir(fs, rootDir);
-	}
-}
-#endif // 0
-
 int main()
 {
-#if 0
-	// TEST/DEBUG
-	{
-		// VHD device test
-		riscv::Device* vhd = riscv::device::vhdCreate("./hdd.vhd");
-		if (!vhd) {
-			return -1;
-		}
-
-		// Read the first sector
-		uint8_t sector[512];
-		vhdReadSector(vhd, 0, sector);
-
-		// Search sector #0 for partition information...
-		PartitionTableEntry* pte = (PartitionTableEntry*)&sector[446];
-		if (pte->m_PartitionType != 0) {
-			FileSystem* fs = fsInit(vhd, pte);
-			assert(fs);
-
-			listCWD(fs);
-
-			int err = fsChangeDir(fs, "./subfolder");
-			assert(err == 0);
-			listCWD(fs);
-
-			err = fsChangeDir(fs, "./..");
-			assert(err == 0);
-			listCWD(fs);
-		}
-
-		riscv::device::destroy(vhd);
-	}
-#endif
-
 	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL | UI_WIN_PERF_COUNTERS | UI_WIN_MEMORY_EDITOR);
+
+	if (configLoad(&app.m_Config, "./config.json")) {
+		app.m_KernelELFData = readFile(app.m_Config.m_KernelELFFile, app.m_KernelELFSize);
+	} else {
+		// TODO: Reset to default values?
+	}
 
 	// Setup window
 	glfwSetErrorCallback(glfw_errorCallback);
@@ -1451,6 +958,7 @@ int main()
 	}
 
 	// Cleanup
+	configSave(&app.m_Config, "./config.json");
 	ImGui::SaveDock();
 	ImGui_ImplGlfw_Shutdown();
 	glfwTerminate();

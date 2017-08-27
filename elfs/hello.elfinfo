@@ -130,8 +130,8 @@ Symbol table '.symtab' contains 190 entries:
     62: 00000000     0 FILE    LOCAL  DEFAULT  ABS syscalls.c
     63: 00012a44   108 FUNC    LOCAL  DEFAULT    1 conv_stat
     64: 00012ae0    36 FUNC    LOCAL  DEFAULT    1 __internal_syscall
-    65: 00014944     8 OBJECT  LOCAL  DEFAULT    8 t0.2538
-    66: 00014940     4 OBJECT  LOCAL  DEFAULT    8 heap_end.2575
+    65: 00014944     8 OBJECT  LOCAL  DEFAULT    8 t0.2536
+    66: 00014940     4 OBJECT  LOCAL  DEFAULT    8 heap_end.2573
     67: 00000000     0 FILE    LOCAL  DEFAULT  ABS errno.c
     68: 00000000     0 FILE    LOCAL  DEFAULT  ABS crtstuff.c
     69: 000130e4     0 OBJECT  LOCAL  DEFAULT    3 __FRAME_END__

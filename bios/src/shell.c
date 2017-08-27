@@ -112,21 +112,22 @@ int executeCommandLine(CmdLine* cmdLine)
 		}
 	}
 
-	// TODO: exec() cmdline as user-mode program.
-
-	kprintf("(x) Unknown command \"%s\"\n", argv[0]);
+	if(!kexec(argv[0], argc, argc > 1 ? &argv[1] : 0)) {
+		kprintf("(x) Unknown command \"%s\"\n", argv[0]);
+	}
 
 	return 1;
 }
 
-int main()
+int shell_main()
 {
 	CmdLine cmdLine;
 	cmdLineInit(&cmdLine);
 
+	char cwd[PATH_MAX];
 	int status = 1;
 	while(status) {
-		kprintf("> ");
+		kprintf("\n%s > ", kgetcwd(cwd, PATH_MAX));
 		if(!cmdLineReadStdIn(&cmdLine)) {
 			continue;
 		}

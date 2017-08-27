@@ -1,10 +1,19 @@
 #include "syscall.h"
-#include "libkernel/stdio.h" // kputchar
+#include "libkernel/stdio.h"  // kputchar
 #include "libkernel/string.h" // kstrlen
 #include "libkernel/kernel.h" // kpanic
+#include "libkernel/memory.h"
+#include "libkernel/task.h"
+#include "libkernel/internal/page_table.h"
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+
+#if 0
+#define systrace(format, args...) kprintf(format, args)
+#else
+#define systrace(format, args...)
+#endif
 
 void sys_exit(int code)
 {
@@ -15,24 +24,44 @@ void sys_exit(int code)
 
 void* sys_brk(void* addr)
 {
-	kprintf("sys_brk(%08X)\n", addr);
-/*
-	extern char _end[];
-	extern char _heap_end[];
-	static char* curbrk = _end;
+	systrace("sys_brk(%08X)\n", addr);
 
-	if ((char*)addr < _heap_end) {
-		return curbrk;
-	} else if ((char*)addr >= _heap_end) {
-		return curbrk;
+	Task* task = kgettask();
+	if((uint32_t)addr < task->m_HeapStart) {
+		return (void*)task->m_ProgramBreak;
+	} else if((uint32_t)addr > task->m_HeapEnd) {
+		return (void*)task->m_ProgramBreak;
 	}
 
-	if ((char*)addr > curbrk) {
-		memset(curbrk, 0, (uint32_t)((char*)addr - curbrk));
+	if((uint32_t)addr > task->m_ProgramBreak) {
+		uint32_t memSize = (uint32_t)addr - task->m_ProgramBreak;
+
+		PageTable* pt = taskGetPageTable(task);
+		if(pt) {
+			// If the requested memory spans multiple pages we have to kmemset
+			// each page individually.
+			uint32_t vmStart = task->m_ProgramBreak;
+			while(memSize > 0) {
+				uint32_t pageOffset = vmStart & 0x00000FFF;
+				uint32_t vpn = (vmStart & 0xFFFFF000) >> 12;
+				uint32_t ppn = pageTableVPN2PPN(pt, vpn);
+				kassert(ppn != 0, "sys_brk(): Invalid physical page number");
+				uint32_t remainingPageLen = 4096 - pageOffset;
+				uint32_t zeroLen = remainingPageLen > memSize ? memSize : remainingPageLen;
+
+				uint32_t physicalAddr = (ppn << 12) | pageOffset;
+				kmemset((void*)physicalAddr, 0, zeroLen);
+
+				vmStart += zeroLen;
+				memSize -= zeroLen;
+			}
+		} else {
+			kmemset((void*)task->m_ProgramBreak, 0, memSize);
+		}
 	}
 
-	curbrk = addr;
-*/
+	task->m_ProgramBreak = (uint32_t)addr;
+
 	return addr;
 }
 
@@ -44,6 +73,7 @@ static int sys_stub(int err)
 
 int sys_close(int fd)
 {
+	systrace("sys_close(%d)\n", fd);
 	return sys_stub(EBADF);
 }
 
@@ -57,8 +87,17 @@ int sys_isatty(int fd)
 	return 0;
 }
 
-int sys_fstat(int fd, struct stat *st)
+int sys_fstat(int fd, struct stat* st)
 {
+	systrace("sys_fstat(%d, 0x%08X)\n", fd, st);
+
+	Task* task = kgettask();
+	PageTable* pt = taskGetPageTable(task);
+	if(pt) {
+		// TODO: What if stat struct spans page boundaries?
+		st = (struct stat*)pageTableVA2PA(pt, st);
+	}
+
 	if (sys_isatty(fd)) {
 		st->st_mode = S_IFCHR;
 		return 0;
@@ -69,6 +108,8 @@ int sys_fstat(int fd, struct stat *st)
 
 off_t sys_lseek(int fd, off_t ptr, int dir)
 {
+	systrace("sys_lseek(%d, %d, %d)\n", fd, ptr, dir);
+	
 	if (sys_isatty(fd)) {
 		return 0;
 	}
@@ -78,6 +119,10 @@ off_t sys_lseek(int fd, off_t ptr, int dir)
 
 ssize_t sys_read(int fd, void* ptr, size_t len)
 {
+	systrace("sys_read(%d, 0x%08X, %u)\n", fd, ptr, len);
+
+	// TODO: Address translation of ptr
+
 	if (sys_isatty(fd)) {
 		uint8_t* u8ptr = (uint8_t*)ptr;
 		size_t l = len;
@@ -91,6 +136,16 @@ ssize_t sys_read(int fd, void* ptr, size_t len)
 
 ssize_t sys_write(int fd, const void* ptr, size_t len)
 {
+	systrace("sys_write(%d, 0x%08X, %u)\n", fd, ptr, len);
+
+	// Address translation of ptr
+	Task* task = kgettask();
+	PageTable* pt = taskGetPageTable(task);
+	if(pt) {
+		// TODO: What if (ptr, len) spans page boundaries.
+		ptr = (const void*)pageTableVA2PA(pt, (void*)ptr);
+	}
+
 	if (sys_isatty(fd)) {
 		uint8_t* u8ptr = (uint8_t*)ptr;
 		size_t l = len;

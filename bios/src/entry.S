@@ -109,7 +109,8 @@ reset:
 	# initialize CSRs
 	la t0, trap;
 	csrw mtvec, t0;
-	csrw mstatus, x0; # MPP = 0, MPRV = 0, all interrupts disabled
+	li t0, 0x00001800;
+	csrw mstatus, t0; # MPP = 3, MPRV = 0, all interrupts disabled
 	csrw mideleg, x0;
 	csrw medeleg, x0;
 	csrw mie, x0;
@@ -154,7 +155,7 @@ trap:
 
 	restore_registers;   # restore all registers (except x0 and sp)
 	addi sp, sp, 128;    # free allocated stack memory
-	lw sp, -120(sp);     # restore caller's sp
+	csrrw sp, mscratch, sp; # restore caller's sp
 	mret                 # return to the code which caused the trap
 
 trap_from_machine_mode:
@@ -180,3 +181,28 @@ trap_from_machine_mode:
 	addi sp, sp, 128;    # free allocated stack memory
 	lw sp, -120(sp);     # restore caller's sp
 	mret                 # return to the code which caused the trap
+
+	.globl _switchToUMode # _switchToUMode(pageTable, entryPoint, stackPtr);
+_switchToUMode:	
+	# In order to transition to U-mode we have to:
+	# 1. Store current M-mode stack pointer in mscratch (used by the trap handler in entry.S)
+	csrw mscratch, sp;
+
+	# 2. Set the new stack pointer.
+	mv sp, a2;
+	
+	# 3. Set satp CSR to point to the page table for this process.
+	srli a0, a0, 12; # page table ptr to page table number
+	li t0, 0x80000000; # satp MODE bit = 1 (== enable virtual to physical translation)
+	or a0, a0, t0;
+	csrw 0x180, a0;
+
+	# 4. Set MPP bits in mstatus CSR to 0 (U-mode)
+	li t0, 0x00001800;
+	csrc mstatus, t0;
+
+	# 5. Set mepc CSR to the entry point of the loaded executable.
+	csrw mepc, a1;
+
+	# 6. Execute mret, which will "return" to previous mode (MPP in mstatus) at address mepc.
+	mret

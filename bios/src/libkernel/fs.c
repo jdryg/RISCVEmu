@@ -3,8 +3,8 @@
 #include "kernel.h"
 #include "memory.h"
 #include "malloc.h"
-#include "file_system.h"
 #include "task.h"
+#include "internal/file_system.h"
 #include "../devices/hdd.h"
 
 extern HDD g_HDD;
@@ -214,6 +214,16 @@ ssize_t kread(int fd, void *buf, size_t count)
 	}
 
 	return fsReadFile(desc->m_Device, desc->m_Data, buf, count);
+}
+
+off_t klseek(int fd, off_t offset, int whence)
+{
+	FileDescriptor* desc = taskGetFileDescriptor(kgettask(), fd);
+	if(!desc) {
+		return -1;
+	}
+
+	return fsSeekFile(desc->m_Device, desc->m_Data, offset, whence);
 }
 
 // NOTE: Only FAT16 is supported at the moment which doesn't support symbolic links.

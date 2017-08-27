@@ -12,5 +12,6 @@ typedef struct RAM
 } RAM;
 
 int ramInit(RAM* ram, uint32_t baseAddr, uint32_t pageSize);
+void* ramAllocPage(RAM* ram);
 
 #endif

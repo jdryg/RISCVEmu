@@ -1,5 +1,6 @@
 #include "ram.h"
 #include "exception_handler.h"
+#include "../libkernel/memory.h"
 
 static volatile int g_RAMTrapTriggered = 0;
 
@@ -62,7 +63,27 @@ int ramInit(RAM* ram, uint32_t baseAddr, uint32_t pageSize)
 	ram->m_PageSize = pageSize;
 	ram->m_TotalSize = ramSize;
 	ram->m_PageAllocBitmap = (uint32_t*)baseAddr;
+	kmemset(ram->m_PageAllocBitmap, 0, sizeof(uint32_t) * 1024);
 	ram->m_PageAllocBitmap[0] |= 0x00000001; // Mark 1st page as allocated (by the Page Allocation Bitmap)
+
+	return 0;
+}
+
+void* ramAllocPage(RAM* ram)
+{
+	// Find the first empty page in the bitmap.
+	for(uint32_t i = 0;i < 1024;++i) {
+		const uint32_t bitmap = ram->m_PageAllocBitmap[i];
+		if(bitmap != 0) {
+			// There's an empty page in this set of 32 pages. Find it.
+			for(uint32_t j = 0;j < 32;++j) {
+				if(!(bitmap & (1 << j))) {
+					ram->m_PageAllocBitmap[i] |= (1 << j);
+					return (void*)(ram->m_BaseAddr + (i * 32 + j + 1) * ram->m_PageSize);
+				}
+			}
+		}
+	}
 
 	return 0;
 }

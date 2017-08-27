@@ -108,16 +108,18 @@ void cpuRaiseException(CPU* cpu, Exception::Enum cause)
 {
 	// TODO: Set mtval in case the exception has a valid value.
 	const uint32_t mstatus = cpu->m_State.m_CSR[CSR::mstatus];
-	cpuSetCSR(cpu, CSR::mstatus, (mstatus & ~MSTATUS_MASK_MPP) | (cpuGetPrivLevel(cpu) << PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT));
-	cpuSetCSR(cpu, CSR::mcause, (word_t)cause);
-	cpuSetCSR(cpu, CSR::mepc, cpuGetPC(cpu));
-	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mtvec));
+	cpu->m_NextState.m_CSR[CSR::mstatus] = (mstatus & ~MSTATUS_MASK_MPP) | (cpuGetPrivLevel(cpu) << PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT);
+	cpu->m_NextState.m_CSR[CSR::mcause] = (word_t)cause;
+	cpu->m_NextState.m_CSR[CSR::mepc] = cpuGetPC(cpu);
 	cpu->m_NextState.m_PrivLevel = PrivLevel::Machine;
+	cpuSetPC(cpu, cpu->m_State.m_CSR[CSR::mtvec]);
 }
 
 void cpuReturnFromException(CPU* cpu)
 {
 	RISCV_CHECK(cpu->m_State.m_PrivLevel == PrivLevel::Machine, "Illegal instruction exception");
+
+	// Switch to the priviledge level indicated by MPP bits in mstatus register.
 	cpu->m_NextState.m_PrivLevel = (PrivLevel::Enum)((cpuGetCSR(cpu, CSR::mstatus) & MSTATUS_MASK_MPP) >> PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT);
 	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mepc));
 }

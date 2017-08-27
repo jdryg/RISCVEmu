@@ -19,11 +19,6 @@
 
 #define HDD_MBR_PARTITION_TABLE_OFFSET 446
 
-#define FAT_TYPE_UNKNOWN  0
-#define FAT_TYPE_FAT12    1
-#define FAT_TYPE_FAT16    2
-#define FAT_TYPE_FAT32    3
-
 static volatile int g_HDDTrapTriggered = 0;
 
 static uintptr_t hddHandleAccessFault(uintptr_t mcause, uintptr_t epc, uintptr_t* regs)

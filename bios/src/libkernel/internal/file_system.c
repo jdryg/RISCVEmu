@@ -15,6 +15,16 @@
 #define LONG_ENTRY_ORDER_MASK 0x3F
 #define LAST_LONG_ENTRY       0x40
 
+#ifndef SEEK_SET
+#define	SEEK_SET	0	/* set file offset to offset */
+#endif
+#ifndef SEEK_CUR
+#define	SEEK_CUR	1	/* set file offset to current plus offset */
+#endif
+#ifndef SEEK_END
+#define	SEEK_END	2	/* set file offset to EOF plus offset */
+#endif
+
 // https://staff.washington.edu/dittrich/misc/fatgen103.pdf
 typedef struct BIOSParamBlock
 {
@@ -157,6 +167,7 @@ FileSystem* fsInit(HDD* hdd, PartitionTableEntry* pte)
 	// NOTE: The locations of the values should be dependent on the sector size which 
 	// I assume it'll always be 512 bytes.
 	if(bootSector[510] != 0x55 || bootSector[511] != 0xAA) {
+		kprintf("fsInit(): Invalid boot sector signature.\n");
 		return 0;
 	}
 
@@ -164,6 +175,7 @@ FileSystem* fsInit(HDD* hdd, PartitionTableEntry* pte)
 	if (!(bpb->m_JmpBoot[0] == 0xE9 || (bpb->m_JmpBoot[0] == 0xEB && bpb->m_JmpBoot[2] == 0x90)) ||
 		bpb->m_BytesPerSector != 512)
 	{
+		kprintf("fsInit(): Invalid boot sector header.\n");
 		return 0;
 	}
 
@@ -184,6 +196,7 @@ FileSystem* fsInit(HDD* hdd, PartitionTableEntry* pte)
 	}
 
 	if (fatType != FAT_TYPE_FAT16) {
+		kprintf("fsInit(): Unsupported FAT type (%u)\n", fatType);
 		return 0; // Cannot handle any other type atm.
 	}
 
@@ -391,7 +404,7 @@ int fsReadFile(FileSystem* fs, FileSystemFile* file, void* buf, size_t len)
 
 		remainingLen = remainingLen > 512 ? 512 : remainingLen;
 
-		kassert((file->m_FilePos % 512) == 0, "Invalid file position");
+		kassert((file->m_FilePos % 512) == 0, "fsReadFile(): Invalid file position");
 
 		const uint32_t sector_rel = file->m_FilePos / 512;
 		const uint32_t sector_abs = _clusterNumberToDataSector(fs, file->m_FSDirEntry.m_DirEntry.m_StartClusterNumber) + sector_rel;
@@ -415,6 +428,37 @@ int fsReadFile(FileSystem* fs, FileSystemFile* file, void* buf, size_t len)
 int fsEOF(FileSystem* fs, FileSystemFile* file)
 {
 	return file->m_FilePos == file->m_FSDirEntry.m_DirEntry.m_FileSize;
+}
+
+int fsSeekFile(FileSystem* fs, FileSystemFile* file, int offset, int whence)
+{
+	const uint32_t fileSize = file->m_FSDirEntry.m_DirEntry.m_FileSize;
+	uint32_t absOffset = file->m_FilePos;
+	if(whence == SEEK_SET) {
+		absOffset = (uint32_t)offset;
+	} else if(whence == SEEK_CUR) {
+		absOffset += offset;
+	} else if(whence == SEEK_END) {
+		absOffset = fileSize + offset;
+	} else {
+		return -1; // Unknown whence
+	}
+
+	if(absOffset > fileSize) {
+		return -1; // Invalid offset
+	}
+
+	file->m_FilePos = absOffset;
+	file->m_BufferPos = absOffset & 511; // % 512
+	
+	// Read the sector.
+	const uint32_t sector_rel = file->m_FilePos / 512;
+	const uint32_t sector_abs = _clusterNumberToDataSector(fs, file->m_FSDirEntry.m_DirEntry.m_StartClusterNumber) + sector_rel;
+
+	uint8_t* sectorData = fsReadSector(fs, sector_abs);
+	kmemcpy(&file->m_Buffer[0], sectorData, 512); // TODO: Might not have 512 bytes to read!
+
+	return absOffset;
 }
 
 //////////////////////////////////////////////////////////////////////////

@@ -13,6 +13,8 @@ void kconsoleRawOutput(const uint8_t* buf, uint32_t len);
 
 struct Task* kgettask();
 
+int kexec(const char* path, int argc, char** argv);
+
 #define kassert(expr, msg) do { if(!(expr)) { kpanic(msg); } } while(0);
 
 #endif
