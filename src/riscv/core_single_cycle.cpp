@@ -276,7 +276,6 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 			const uint32_t virtualAddr = cpuGetRegister(cpu, instr.S.rs1) + immS(instr);
 			const uint32_t val = cpuGetRegister(cpu, instr.S.rs2);
 
-			// TODO: Address translation
 			if (!cpuMemWrite(cpu, mm, &cpu->m_DTLB, virtualAddr, byteMask, val)) {
 				goto next_tick;
 			}
@@ -386,82 +385,89 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 	}
 		break;
 	case Opcode::System:
-		switch (instr.I.funct3) {
-		case 0: // ECALL, EBREAK, XRET
-			if (instr.I.rd != 0 || instr.I.rs1 != 0) {
+		if (instr.m_Word == 0x00000073) {
+			// ECALL
+			if (cpuGetPrivLevel(cpu) == PrivLevel::User) {
+				cpuRaiseException(cpu, Exception::EnvCallFromUser);
+				goto next_tick;
+			} else {
+				cpuRaiseException(cpu, Exception::EnvCallFromMachine);
+				goto next_tick;
+			}
+		} else if (instr.m_Word == 0x00100073) {
+			// EBREAK
+			cpuRaiseException(cpu, Exception::Breakpoint);
+			goto next_tick;
+		} else if (instr.m_Word == 0x30200073) {
+			// MRET
+			if (cpuGetPrivLevel(cpu) != PrivLevel::Machine) {
 				cpuRaiseException(cpu, Exception::IllegalInstruction);
 				goto next_tick;
 			} else {
-				switch (instr.I.imm) {
-				case 0: // ECALL
-					if (cpuGetPrivLevel(cpu) == PrivLevel::User) {
-						cpuRaiseException(cpu, Exception::EnvCallFromUser);
-						goto next_tick;
-					} else {
-						cpuRaiseException(cpu, Exception::EnvCallFromMachine);
-						goto next_tick;
-					}
-					break;
-				case 1: // EBREAK
-					cpuRaiseException(cpu, Exception::Breakpoint);
+				cpuReturnFromException(cpu);
+				goto next_tick;
+			}
+		} else if (instr.m_Word == 0x10200073  // SRET
+			    || instr.m_Word == 0x00200073  // URET
+			    || instr.m_Word == 0x10500073) // WFI
+		{
+			cpuRaiseException(cpu, Exception::IllegalInstruction);
+			goto next_tick;
+		} else {
+			switch (instr.I.funct3) {
+			case 0: // ECALL, EBREAK, xRET, SFENCE.VMA
+				// NOTE: ECALL, EBREAK and xRET have been covered with the tests above. Only valid instruction
+				// in this case is SFENCE.VMA.
+				if (instr.R.funct7 == 9) {
+					// SFENCE.VMA
+					// Ignore rs1 and rs2 (afaict they are just hints). Flush both TLBs
+					tlbFlush(&cpu->m_DTLB);
+					tlbFlush(&cpu->m_ITLB);
+				} else {
+					cpuRaiseException(cpu, Exception::IllegalInstruction);
 					goto next_tick;
-				default:
-					if ((instr.I.imm & 0x1F) == 2) {
-						// XRET
-						if ((instr.I.imm >> 8) > cpuGetPrivLevel(cpu)) {
-							cpuRaiseException(cpu, Exception::IllegalInstruction);
-							goto next_tick;
-						} else {
-							cpuReturnFromException(cpu);
-							goto next_tick;
-						}
-					} else {
-						cpuRaiseException(cpu, Exception::IllegalInstruction);
-						goto next_tick;
-					}
-					break;
 				}
-			}
-			break;
-		case 1: // CSRRW
-			if (instr.I.rd != 0) {
+				break;
+			case 1: // CSRRW
+				if (instr.I.rd != 0) {
+					cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				}
+				cpuSetCSR(cpu, instr.I.imm, cpuGetRegister(cpu, instr.I.rs1));
+				break;
+			case 2: // CSRRS
 				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
-			}
-			cpuSetCSR(cpu, instr.I.imm, cpuGetRegister(cpu, instr.I.rs1));
-			break;
-		case 2: // CSRRS
-			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
-			if (instr.I.rs1 != 0) {
-				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | cpuGetRegister(cpu, instr.I.rs1));
-			}
-			break;
-		case 3: // CSRRC
-			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
-			if (instr.I.rs1 != 0) {
-				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~cpuGetRegister(cpu, instr.I.rs1)));
-			}
-			break;
-		case 5: // CSRRWI
-			if (instr.I.rd != 0) {
+				if (instr.I.rs1 != 0) {
+					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | cpuGetRegister(cpu, instr.I.rs1));
+				}
+				break;
+			case 3: // CSRRC
 				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				if (instr.I.rs1 != 0) {
+					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~cpuGetRegister(cpu, instr.I.rs1)));
+				}
+				break;
+			case 5: // CSRRWI
+				if (instr.I.rd != 0) {
+					cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				}
+				cpuSetCSR(cpu, instr.I.imm, instr.I.rs1);
+				break;
+			case 6: // CSRRSI
+				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				if (instr.I.rs1 != 0) {
+					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | instr.I.rs1);
+				}
+				break;
+			case 7: // CSRRCI
+				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				if (instr.I.rs1 != 0) {
+					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~instr.I.rs1));
+				}
+				break;
+			default:
+				cpuRaiseException(cpu, Exception::IllegalInstruction);
+				goto next_tick;
 			}
-			cpuSetCSR(cpu, instr.I.imm, instr.I.rs1);
-			break;
-		case 6: // CSRRSI
-			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
-			if (instr.I.rs1 != 0) {
-				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | instr.I.rs1);
-			}
-			break;
-		case 7: // CSRRCI
-			cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
-			if (instr.I.rs1 != 0) {
-				cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~instr.I.rs1));
-			}
-			break;
-		default:
-			// Invalid instruction
-			break;
 		}
 		break;
 	default:

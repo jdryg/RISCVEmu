@@ -18,16 +18,20 @@ bool tlbInit(TLB* tlb, uint32_t numEntries)
 		tlb->m_Entries = nullptr;
 		return false;
 	}
+	tlb->m_NumEntries = numEntries;
 
-	// Reset
+	tlbFlush(tlb);
+
+	return true;
+}
+
+void tlbFlush(TLB* tlb)
+{
+	const uint32_t numEntries = tlb->m_NumEntries;
 	for (uint32_t i = 0; i < numEntries; ++i) {
 		tlb->m_Entries[i].m_IsValid = false;
 		tlb->m_FIFO[i] = ~0u;
 	}
-
-	tlb->m_NumEntries = numEntries;
-
-	return true;
 }
 
 TLBLookupResult tlbLookup(const TLB* tlb, TLB::virtual_addr_t virtualPageNumber)

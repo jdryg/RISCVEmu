@@ -231,6 +231,8 @@ _switchToUMode:
 	or a0, a0, t0;
 	csrw 0x180, a0;
 
+	sfence.vma;
+
 	# 4. Set MPP bits in mstatus CSR to 0 (U-mode)
 	li t0, 0x00001800;
 	csrc mstatus, t0;
