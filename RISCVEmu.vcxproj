@@ -182,9 +182,6 @@
     <ClCompile Include="src\riscv\disasm.cpp" />
     <ClCompile Include="src\riscv\memory_map.cpp" />
     <ClCompile Include="src\riscv\tlb.cpp" />
-    <ClCompile Include="src\syscall.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bx\include\bx\allocator.h" />
@@ -245,9 +242,6 @@
     <ClInclude Include="src\riscv\cpu.h" />
     <ClInclude Include="src\riscv\memory_map.h" />
     <ClInclude Include="src\riscv\tlb.h" />
-    <ClInclude Include="src\syscall.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\imgui\imgui_user.inl" />
