@@ -5,9 +5,6 @@
 
 namespace riscv
 {
-#define SATP_MODE_MASK        0x80000000
-#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number
-
 #define PTE_PROTECTION_MASK   0x0000000E
 #define PTE_PROTECTION_SHIFT  1
 
@@ -70,7 +67,7 @@ bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 	// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
 	// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
 	// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
-	const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
+	const uint32_t satp = cpuGetCSR(cpu, CSR::satp);
 	if ((satp & SATP_MODE_MASK) == 0) {
 		// No translation needed
 		// TODO: Should this check be moved before TLB lookup?
@@ -139,7 +136,7 @@ bool cpuMemWrite(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uin
 	// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
 	// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
 	// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
-	const uint32_t satp = cpuReadCSR(cpu, CSR::satp);
+	const uint32_t satp = cpuGetCSR(cpu, CSR::satp);
 	if ((satp & SATP_MODE_MASK) == 0) {
 		// No translation needed
 		// TODO: Should this check be moved before TLB lookup?
@@ -434,38 +431,38 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 				break;
 			case 1: // CSRRW
 				if (instr.I.rd != 0) {
-					cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+					cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				}
-				cpuSetCSR(cpu, instr.I.imm, cpuGetRegister(cpu, instr.I.rs1));
+				cpuWriteCSR(cpu, instr.I.imm, cpuGetRegister(cpu, instr.I.rs1));
 				break;
 			case 2: // CSRRS
-				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				if (instr.I.rs1 != 0) {
-					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | cpuGetRegister(cpu, instr.I.rs1));
+					cpuWriteCSR(cpu, instr.I.imm, cpuReadCSR(cpu, instr.I.imm) | cpuGetRegister(cpu, instr.I.rs1));
 				}
 				break;
 			case 3: // CSRRC
-				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				if (instr.I.rs1 != 0) {
-					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~cpuGetRegister(cpu, instr.I.rs1)));
+					cpuWriteCSR(cpu, instr.I.imm, cpuReadCSR(cpu, instr.I.imm) & (~cpuGetRegister(cpu, instr.I.rs1)));
 				}
 				break;
 			case 5: // CSRRWI
 				if (instr.I.rd != 0) {
-					cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+					cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				}
-				cpuSetCSR(cpu, instr.I.imm, instr.I.rs1);
+				cpuWriteCSR(cpu, instr.I.imm, instr.I.rs1);
 				break;
 			case 6: // CSRRSI
-				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				if (instr.I.rs1 != 0) {
-					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) | instr.I.rs1);
+					cpuWriteCSR(cpu, instr.I.imm, cpuReadCSR(cpu, instr.I.imm) | instr.I.rs1);
 				}
 				break;
 			case 7: // CSRRCI
-				cpuSetRegister(cpu, instr.I.rd, cpuGetCSR(cpu, instr.I.imm));
+				cpuSetRegister(cpu, instr.I.rd, cpuReadCSR(cpu, instr.I.imm));
 				if (instr.I.rs1 != 0) {
-					cpuSetCSR(cpu, instr.I.imm, cpuGetCSR(cpu, instr.I.imm) & (~instr.I.rs1));
+					cpuWriteCSR(cpu, instr.I.imm, cpuReadCSR(cpu, instr.I.imm) & (~instr.I.rs1));
 				}
 				break;
 			default:
@@ -482,7 +479,7 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 	// Update counters
 #if 0 
 	// TODO: How should those be updated when running in U-mode?
-	const uint32_t countersEnabled = cpuGetCSR(cpu, CSR::mcounteren);
+	const uint32_t countersEnabled = cpuReadCSR(cpu, CSR::mcounteren);
 	if (countersEnabled & MCOUNTEREN_CY) {
 		cpuIncCounter64(cpu, CSR::mcycle, 1);
 		cpuShadowCSR64(cpu, CSR::cycle, CSR::mcycle);

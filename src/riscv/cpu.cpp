@@ -1,4 +1,5 @@
 #include "cpu.h"
+#include "memory_map.h"
 #include "../debug.h"
 
 namespace riscv
@@ -64,7 +65,7 @@ void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val)
 	}
 }
 
-void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val)
+void cpuWriteCSR(CPU* cpu, uint32_t csr, word_t val)
 {
 	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
 
@@ -81,7 +82,7 @@ void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val)
 	cpu->m_NextState.m_CSR[csr] = val;
 }
 
-word_t cpuGetCSR(CPU* cpu, uint32_t csr)
+word_t cpuReadCSR(CPU* cpu, uint32_t csr)
 {
 	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
 
@@ -93,7 +94,7 @@ word_t cpuGetCSR(CPU* cpu, uint32_t csr)
 	return cpu->m_State.m_CSR[csr];
 }
 
-word_t cpuReadCSR(CPU* cpu, uint32_t csr)
+word_t cpuGetCSR(CPU* cpu, uint32_t csr)
 {
 	RISCV_CHECK(csr <= 0xFFF, "Illegal instruction exception: Invalid CSR");
 	return cpu->m_State.m_CSR[csr];
@@ -120,26 +121,33 @@ void cpuReturnFromException(CPU* cpu)
 	RISCV_CHECK(cpu->m_State.m_PrivLevel == PrivLevel::Machine, "Illegal instruction exception");
 
 	// Switch to the priviledge level indicated by MPP bits in mstatus register.
-	cpu->m_NextState.m_PrivLevel = (PrivLevel::Enum)((cpuGetCSR(cpu, CSR::mstatus) & MSTATUS_MASK_MPP) >> PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT);
-	cpuSetPC(cpu, cpuGetCSR(cpu, CSR::mepc));
+	cpu->m_NextState.m_PrivLevel = (PrivLevel::Enum)((cpuReadCSR(cpu, CSR::mstatus) & MSTATUS_MASK_MPP) >> PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT);
+	cpuSetPC(cpu, cpuReadCSR(cpu, CSR::mepc));
 }
 
 void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n)
 {
-	const uint64_t cnt = cpuGetCSR64(cpu, csrLow);
+	const uint64_t cnt = cpuReadCSR64(cpu, csrLow);
 	const uint64_t cntNew = cnt + n;
 	const uint32_t nl = (uint32_t)(cntNew & 0x00000000FFFFFFFF);
 	const uint32_t hi = (uint32_t)((cntNew & 0xFFFFFFFF00000000) >> 32);
 
-	cpuSetCSR(cpu, csrLow, nl);
-	cpuSetCSR(cpu, csrLow | 0x80, hi);
+	cpuWriteCSR(cpu, csrLow, nl);
+	cpuWriteCSR(cpu, csrLow | 0x80, hi);
 }
 
 void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src)
 {
-	// NOTE: Don't call cpuSetCSR() because the shadowed CSRs might be marked as readonly.
-	cpu->m_NextState.m_CSR[dst] = cpuGetCSR(cpu, src);
-	cpu->m_NextState.m_CSR[dst | 0x80] = cpuGetCSR(cpu, src | 0x80);
+	// NOTE: Don't call cpuWriteCSR() because the shadowed CSRs might be marked as readonly.
+	cpu->m_NextState.m_CSR[dst] = cpuReadCSR(cpu, src);
+	cpu->m_NextState.m_CSR[dst | 0x80] = cpuReadCSR(cpu, src | 0x80);
+}
+
+uint64_t cpuReadCSR64(CPU* cpu, CSR::Enum csrLow)
+{
+	const uint32_t l = cpuReadCSR(cpu, csrLow);
+	const uint32_t h = cpuReadCSR(cpu, csrLow | 0x80);
+	return (uint64_t)l | (((uint64_t)h) << 32);
 }
 
 uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow)
@@ -156,5 +164,39 @@ uint32_t cpuGetOutputPin(CPU* cpu, OutputPin::Enum pin)
 	}
 
 	return 0;
+}
+
+bool cpuMemGet(CPU* cpu, MemoryMap* mm, uint32_t virtualAddress, uint32_t byteMask, uint32_t& data)
+{
+	const uint32_t satp = cpuGetCSR(cpu, CSR::satp);
+	if (cpuGetPrivLevel(cpu) == PrivLevel::Machine ||
+		(satp & SATP_MODE_MASK) == 0) 
+	{
+		// Virtual address is the physical address.
+		if (!mmRead(mm, virtualAddress, byteMask, data)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	
+	// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
+	const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
+	const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
+	const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
+	PageTableEntry pte;
+	if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+		return false;
+	}
+
+	if (!pte.m_Fields.m_Valid) {
+		return false;
+	}
+	
+	const uint32_t offset = virtualAddress & kAddressOffsetMask;
+	const TLB::physical_addr_t physicalAddress = (pte.m_Fields.m_PhysicalPageNumber << kPageShift) | offset;
+	return mmRead(mm, physicalAddress, byteMask, data);
 }
 }

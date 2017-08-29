@@ -19,6 +19,9 @@ typedef uint64_t word_t;
 
 namespace riscv
 {
+#define SATP_MODE_MASK        0x80000000
+#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number
+
 struct MemoryMap;
 
 const uint32_t kPageShift = 12; // 4k
@@ -348,16 +351,18 @@ word_t cpuGetPC(CPU* cpu);
 void cpuSetPC(CPU* cpu, word_t val);
 word_t cpuGetRegister(CPU* cpu, uint32_t reg);
 void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val);
-word_t cpuGetCSR(CPU* cpu, uint32_t csr);
-word_t cpuReadCSR(CPU* cpu, uint32_t csr); // Same as GetCSR() but without the privilege checks. Used by the page table walker.
-void cpuSetCSR(CPU* cpu, uint32_t csr, word_t val);
+word_t cpuReadCSR(CPU* cpu, uint32_t csr);
+word_t cpuGetCSR(CPU* cpu, uint32_t csr); // Same as GetCSR() but without the privilege checks. Used by the page table walker.
+void cpuWriteCSR(CPU* cpu, uint32_t csr, word_t val);
 uint32_t cpuGetPrivLevel(CPU* cpu);
 void cpuRaiseException(CPU* cpu, Exception::Enum cause);
 void cpuReturnFromException(CPU* cpu);
 void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n);
 void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src);
+uint64_t cpuReadCSR64(CPU* cpu, CSR::Enum csrLow);
 uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow);
 uint32_t cpuGetOutputPin(CPU* cpu, OutputPin::Enum pin);
+bool cpuMemGet(CPU* cpu, MemoryMap* mem, uint32_t addr, uint32_t byteMask, uint32_t& data);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);

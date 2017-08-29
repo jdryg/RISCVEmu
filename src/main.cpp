@@ -526,7 +526,7 @@ void doWin_Debugger(App* app)
 					char disasm[256];
 
 					uint32_t instr;
-					if (!riscv::mmRead(app->m_MemoryMap, addr, 0xFFFFFFFF, instr)) {
+					if (!riscv::cpuMemGet(app->m_CPU, app->m_MemoryMap, addr, 0xFFFFFFFF, instr)) {
 						bx::snprintf(disasm, 256, "Unmapped memory location");
 					} else {
 						riscv::disasmInstruction(instr, addr, disasm, 256);
