@@ -8,6 +8,7 @@ struct Config
 	int m_RAMSizeMB;
 	int m_SimSpeed;
 	bool m_ForceReloadKernelELF;
+	bool m_BreakOnEBREAK;
 };
 
 bool configLoad(Config* cfg, const char* filename);

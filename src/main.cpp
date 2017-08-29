@@ -117,6 +117,7 @@ struct App
 		m_Config.m_VHDFile[0] = '\0';
 		m_Config.m_RAMSizeMB = 4;
 		m_Config.m_SimSpeed = 1000;
+		m_Config.m_BreakOnEBREAK = true;
 	}
 
 	~App()
@@ -699,6 +700,8 @@ void doWin_Breakpoints(App* app)
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
+			ImGui::Checkbox("Break on EBREAK", &app->m_Config.m_BreakOnEBREAK);
+
 			// 2 column layout
 			ImGui::Columns(2, nullptr, true);
 
@@ -1012,7 +1015,9 @@ int main()
 
 					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_MemoryMap);
 					
-					if (dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) {
+					if ((app.m_Config.m_BreakOnEBREAK && cpuGetOutputPin(app.m_CPU, riscv::OutputPin::Breakpoint)) || 
+						dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) 
+					{
 						breakpointReached = true;
 						break;
 					}

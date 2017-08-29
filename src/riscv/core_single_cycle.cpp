@@ -179,6 +179,9 @@ bool cpuMemWrite(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uin
 // be implemented (requires a combinational read from memory; if at all possible).
 void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 {
+	// Clear the breakpoint output
+	cpu->m_NextState.m_Breakpoint = false;
+
 	const uint32_t pc = cpuGetPC(cpu);
 	uint32_t nextPC = pc + 4;
 
@@ -396,8 +399,9 @@ void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mm)
 			}
 		} else if (instr.m_Word == 0x00100073) {
 			// EBREAK
-			cpuRaiseException(cpu, Exception::Breakpoint);
-			goto next_tick;
+			cpu->m_NextState.m_Breakpoint = true;
+//			cpuRaiseException(cpu, Exception::Breakpoint);
+//			goto next_tick;
 		} else if (instr.m_Word == 0x30200073) {
 			// MRET
 			if (cpuGetPrivLevel(cpu) != PrivLevel::Machine) {

@@ -200,6 +200,14 @@ struct Exception
 	};
 };
 
+struct OutputPin
+{
+	enum Enum : uint32_t
+	{
+		Breakpoint
+	};
+};
+
 struct CPUState
 {
 	// User-visible integer state
@@ -210,6 +218,9 @@ struct CPUState
 	word_t m_CSR[4096]; // NOTE: Only a handful of CSRs are defined/used but lets have them all :)
 
 	PrivLevel::Enum m_PrivLevel;
+
+	// Outputs
+	bool m_Breakpoint; // Was the last executed instruction an EBREAK?
 };
 
 struct CPU
@@ -346,6 +357,7 @@ void cpuReturnFromException(CPU* cpu);
 void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n);
 void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src);
 uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow);
+uint32_t cpuGetOutputPin(CPU* cpu, OutputPin::Enum pin);
 
 // core_single_cycle.cpp
 void cpuReset(CPU* cpu, word_t pc, word_t sp);

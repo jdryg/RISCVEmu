@@ -148,4 +148,13 @@ uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow)
 	const uint32_t h = cpuGetCSR(cpu, csrLow | 0x80);
 	return (uint64_t)l | (((uint64_t)h) << 32);
 }
+
+uint32_t cpuGetOutputPin(CPU* cpu, OutputPin::Enum pin)
+{
+	if (pin == OutputPin::Breakpoint) {
+		return cpu->m_State.m_Breakpoint ? 1 : 0;
+	}
+
+	return 0;
+}
 }

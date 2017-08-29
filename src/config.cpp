@@ -66,6 +66,7 @@ bool configLoad(Config* cfg, const char* filename)
 	json_token* simSpeedToken = json_query(toks, num, "SimSpeed");
 	json_token* forceReloadKernelToken = json_query(toks, num, "ForceReloadKernelELF");
 	json_token* vhdToken = json_query(toks, num, "VHD");
+	json_token* breakOnEBREAKToken = json_query(toks, num, "BreakOnEBREAK");
 
 	if (kernelELFToken) {
 		unescapeString(kernelELFToken->str, kernelELFToken->len, cfg->m_KernelELFFile);
@@ -81,6 +82,9 @@ bool configLoad(Config* cfg, const char* filename)
 	}
 	if (vhdToken) {
 		unescapeString(vhdToken->str, vhdToken->len, cfg->m_VHDFile);
+	}
+	if (breakOnEBREAKToken) {
+		cfg->m_BreakOnEBREAK = !strncmp(breakOnEBREAKToken->str, "true", 4);
 	}
 
 	free(toks);
@@ -107,7 +111,8 @@ bool configSave(Config* cfg, const char* filename)
 	fprintf(f, "\t\"SimSpeed\": \"%d\",\n", cfg->m_SimSpeed);
 	fprintf(f, "\t\"RAMSizeMB\": \"%d\",\n", cfg->m_RAMSizeMB);
 	fprintf(f, "\t\"ForceReloadKernelELF\": \"%s\"\n,", cfg->m_ForceReloadKernelELF ? "true" : "false");
-	fprintf(f, "\t\"VHD\": \"%s\"\n", vhdFile);
+	fprintf(f, "\t\"VHD\": \"%s\"\n,", vhdFile);
+	fprintf(f, "\t\"BreakOnEBREAK\": \"%s\"\n", cfg->m_BreakOnEBREAK ? "true" : "false");
 	fprintf(f, "}\n");
 
 	fclose(f);
