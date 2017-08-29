@@ -4,6 +4,7 @@
 struct Config
 {
 	char m_KernelELFFile[256];
+	char m_VHDFile[256];
 	int m_RAMSizeMB;
 	int m_SimSpeed;
 	bool m_ForceReloadKernelELF;

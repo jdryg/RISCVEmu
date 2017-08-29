@@ -65,6 +65,7 @@ bool configLoad(Config* cfg, const char* filename)
 	json_token* ramSizeToken = json_query(toks, num, "RAMSizeMB");
 	json_token* simSpeedToken = json_query(toks, num, "SimSpeed");
 	json_token* forceReloadKernelToken = json_query(toks, num, "ForceReloadKernelELF");
+	json_token* vhdToken = json_query(toks, num, "VHD");
 
 	if (kernelELFToken) {
 		unescapeString(kernelELFToken->str, kernelELFToken->len, cfg->m_KernelELFFile);
@@ -77,6 +78,9 @@ bool configLoad(Config* cfg, const char* filename)
 	}
 	if (forceReloadKernelToken) {
 		cfg->m_ForceReloadKernelELF = !strncmp(forceReloadKernelToken->str, "true", 4);
+	}
+	if (vhdToken) {
+		unescapeString(vhdToken->str, vhdToken->len, cfg->m_VHDFile);
 	}
 
 	free(toks);
@@ -95,11 +99,15 @@ bool configSave(Config* cfg, const char* filename)
 	char kernelFile[256];
 	escapeString(cfg->m_KernelELFFile, kernelFile);
 
+	char vhdFile[256];
+	escapeString(cfg->m_VHDFile, vhdFile);
+
 	fprintf(f, "{\n");
 	fprintf(f, "\t\"KernelELF\": \"%s\",\n", kernelFile);
 	fprintf(f, "\t\"SimSpeed\": \"%d\",\n", cfg->m_SimSpeed);
 	fprintf(f, "\t\"RAMSizeMB\": \"%d\",\n", cfg->m_RAMSizeMB);
-	fprintf(f, "\t\"ForceReloadKernelELF\": \"%s\"\n", cfg->m_ForceReloadKernelELF ? "true" : "false");
+	fprintf(f, "\t\"ForceReloadKernelELF\": \"%s\"\n,", cfg->m_ForceReloadKernelELF ? "true" : "false");
+	fprintf(f, "\t\"VHD\": \"%s\"\n", vhdFile);
 	fprintf(f, "}\n");
 
 	fclose(f);

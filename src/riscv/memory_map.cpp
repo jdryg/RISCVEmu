@@ -648,7 +648,8 @@ Device* vhdCreate(const char* filename)
 		vhd->m_Footer.m_DataOffset != 0xFFFFFFFFFFFFFFFF ||
 		vhd->m_Footer.m_OriginalSize != vhd->m_Size ||
 		vhd->m_Footer.m_CurrentSize != vhd->m_Size ||
-		vhd->m_Footer.m_DiskType != VHD_DISK_TYPE_FIXED) {
+		vhd->m_Footer.m_DiskType != VHD_DISK_TYPE_FIXED)
+	{
 		fclose(vhd->m_Handle);
 		free(vhd);
 		return nullptr;

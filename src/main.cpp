@@ -114,6 +114,7 @@ struct App
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
 		m_Config.m_ForceReloadKernelELF = false;
 		m_Config.m_KernelELFFile[0] = '\0';
+		m_Config.m_VHDFile[0] = '\0';
 		m_Config.m_RAMSizeMB = 4;
 		m_Config.m_SimSpeed = 1000;
 	}
@@ -183,11 +184,10 @@ int initEmulator(App* app)
 	}
 	riscv::mmMapDevice(mm, consoleUART, CONSOLE_UART_BASE_ADDR, riscv::device::kUARTMemorySize);
 
-	riscv::Device* hdd = riscv::device::vhdCreate("./hdd.vhd"); // TODO: Configuration option
-	if (!hdd) {
-		return INIT_ERR_NO_MEMORY; // TODO: Different error?
+	riscv::Device* hdd = riscv::device::vhdCreate(app->m_Config.m_VHDFile);
+	if (hdd) {
+		riscv::mmMapDevice(mm, hdd, HDD_BASE_ADDR, riscv::device::kVHDMemorySize);
 	}
-	riscv::mmMapDevice(mm, hdd, HDD_BASE_ADDR, riscv::device::kVHDMemorySize);
 
 	// Initialize CPU
 	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));
@@ -377,6 +377,17 @@ void doWin_Setup(App* app)
 			if (ImGui::CollapsingHeader("System configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::PushItemWidth(-60.0f);
 				ImGui::SliderInt("RAM [MB]", &app->m_Config.m_RAMSizeMB, 1, 16);
+
+				ImGui::InputTextEx("VHD", &app->m_Config.m_VHDFile[0], BX_COUNTOF(app->m_Config.m_VHDFile), ImVec2(-60.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+				ImGui::SameLine();
+				if (ImGui::Button(ICON_FA_FOLDER_OPEN)) {
+					nfdchar_t* outPath = nullptr;
+					nfdresult_t result = NFD_OpenDialog("vhd", nullptr, &outPath);
+					if (result == NFD_OKAY) {
+						bx::snprintf(app->m_Config.m_VHDFile, BX_COUNTOF(app->m_Config.m_VHDFile), "%s", outPath);
+						free(outPath);
+					}
+				}
 			}
 		}
 
