@@ -604,7 +604,8 @@ void doWin_Debugger(App* app)
 
 void doWin_Registers(App* app)
 {
-	const float fieldWidth = 110.0f;
+	const float regControlWidth = 110.0f;
+	const float csrControlWidth = 150.0f;
 
 	ImGui::SetNextWindowSize(ImVec2(150, 445), ImGuiSetCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2(1130, 20), ImGuiSetCond_FirstUseEver);
@@ -614,19 +615,68 @@ void doWin_Registers(App* app)
 		if (!app->m_CPU) {
 			ImGui::Text("Emulator is not running");
 		} else {
-			const float winWidth = ImGui::GetWindowContentRegionWidth();
-			const uint32_t numFieldsPerLine = bx::uint32_max((uint32_t)floorf(winWidth / fieldWidth), 1);
+			char str[256];
 
-			for (uint32_t x = 1; x < 32;) {
-				for (uint32_t i = 0; i < numFieldsPerLine && x < 32; ++i, ++x) {
-					ImGui::SetCursorPosX(i * fieldWidth + ImGui::GetStyle().WindowPadding.x);
+			// PC
+			bx::snprintf(str, 256, "%08Xh", riscv::cpuGetPC(app->m_CPU));
+			ImGui::InputTextEx("pc", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 
-					char str[256];
-					bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
-					ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
-					ImGui::SameLine();
+			// Integer registers
+			if (ImGui::CollapsingHeader("Integer Registers", ImGuiTreeNodeFlags_DefaultOpen)) {
+				const float winWidth = ImGui::GetWindowContentRegionWidth();
+				const uint32_t numControlsPerLine = bx::uint32_max((uint32_t)floorf(winWidth / regControlWidth), 1);
+
+				for (uint32_t x = 1; x < 32;) {
+					for (uint32_t i = 0; i < numControlsPerLine && x < 32; ++i, ++x) {
+						ImGui::SetCursorPosX(i * regControlWidth + ImGui::GetStyle().WindowPadding.x);
+
+						bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
+						ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+						ImGui::SameLine();
+					}
+					ImGui::NewLine();
 				}
-				ImGui::NewLine();
+			}
+
+			// CSRs
+			if (ImGui::CollapsingHeader("Control & Status Registers", ImGuiTreeNodeFlags_DefaultOpen)) {
+				struct CSRDesc {
+					uint32_t m_ID;
+					const char* m_Name;
+				} csrList[] = {
+					{ riscv::CSR::mvendorid, "mvendorid" },
+					{ riscv::CSR::marchid, "marchid" },
+					{ riscv::CSR::mimpid, "mimpid" },
+					{ riscv::CSR::mhartid, "mhartid" },
+					{ riscv::CSR::mstatus, "mstatus" },
+					{ riscv::CSR::misa, "misa" },
+					{ riscv::CSR::medeleg, "medeleg" },
+					{ riscv::CSR::mideleg, "mideleg" },
+					{ riscv::CSR::mie, "mie" },
+					{ riscv::CSR::mtvec, "mtvec" },
+					{ riscv::CSR::mcounteren, "mcounteren" },
+					{ riscv::CSR::mscratch, "mscratch" },
+					{ riscv::CSR::mepc, "mepc" },
+					{ riscv::CSR::mcause, "mcause" },
+					{ riscv::CSR::mtval, "mtval" },
+					{ riscv::CSR::mip, "mip" },
+					{ riscv::CSR::satp, "satp" }
+				};
+				const uint32_t numCSRs = BX_COUNTOF(csrList);
+
+				const float winWidth = ImGui::GetWindowContentRegionWidth();
+				const uint32_t numControlsPerLine = bx::uint32_max((uint32_t)floorf(winWidth / csrControlWidth), 1);
+
+				for (uint32_t csr = 0; csr < numCSRs;) {
+					for (uint32_t i = 0; i < numControlsPerLine && csr < numCSRs; ++i, ++csr) {
+						ImGui::SetCursorPosX(i * csrControlWidth + ImGui::GetStyle().WindowPadding.x);
+
+						bx::snprintf(str, 256, "%08Xh", riscv::cpuGetCSR(app->m_CPU, csrList[csr].m_ID));
+						ImGui::InputTextEx(csrList[csr].m_Name, str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
+						ImGui::SameLine();
+					}
+					ImGui::NewLine();
+				}
 			}
 		}
 	}

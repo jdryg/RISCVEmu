@@ -118,7 +118,7 @@ struct CSR
 		mcycle = 0xB00,      // MRW
 		minstret = 0xB02,    // MRW
 		mcycleh = 0xB80,     // MRW
-		minstreth = 0xB82,    // MRW
+		minstreth = 0xB82,   // MRW
 
 		// Supervisor Protection and Translation 
 		// NOTE: Even though the current simulator only supports U + M modes this is the only 
