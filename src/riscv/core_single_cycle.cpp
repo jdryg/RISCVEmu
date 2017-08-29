@@ -32,6 +32,64 @@ void cpuReset(CPU* cpu, word_t pc, word_t sp)
 	bx::memCopy(&cpu->m_State, &cpu->m_NextState, sizeof(CPUState));
 }
 
+// NOTE: Doesn't support superpages. Pages are always 4k independent of their level in the hierarchy.
+void cpuPageTableWalk(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t satp, uint32_t vpn, bool read, bool write, bool execute, bool isStore)
+{
+	// Algorithm from section 4.3.2 (RISC-V Privileged Architectures v1.10)
+	// 1. Let pageTablePPN be satp.ppn * PAGESIZE, and let level = LEVELS - 1. (For Sv32, PAGESIZE = 212 and LEVELS = 2.)
+	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << kPageShift;
+	uint32_t level = 1;
+	while (true) {
+		// 2. Let pte be the value of the PTE at address a + va.vpn[i] * PTESIZE. (For Sv32, PTESIZE=4.)
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
+		PageTableEntry pte;
+		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+			// 2. If accessing pte violates a PMA or PMP check, raise an access exception.
+			cpuRaiseException(cpu, isStore ? Exception::StoreAccessFault : Exception::LoadAccessFault);
+			break;
+		} else {
+			// 3. If pte.v = 0, or if pte.r = 0 and pte.w = 1, stop and raise a page-fault exception.
+			if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
+				cpuRaiseException(cpu, isStore ? Exception::StorePageFault : Exception::LoadPageFault);
+				break;
+			} else {
+				// 4. Otherwise, the PTE is valid. 
+				// If pte.r = 1 or pte.x = 1, go to step 5. Otherwise, this PTE is a pointer to the next level 
+				// of the page table. Let level = level - 1. If level < 0, stop and raise a page-fault exception.
+				// Otherwise, let pageTablePhysicalAddr = pte.ppn * PAGESIZE and go to step 2.
+				if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
+					if (level == 0) {
+						cpuRaiseException(cpu, isStore ? Exception::StorePageFault : Exception::LoadPageFault);
+						break;
+					}
+
+					--level;
+					pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << kPageShift;
+					continue;
+				}
+
+				// 5. A leaf PTE has been found. Determine if the requested memory access is allowed by the
+				// pte.r, pte.w, pte.x, and pte.u bits, given the current privilege mode and the value of the SUM
+				// and MXR fields of the mstatus register. If not, stop and raise a page-fault exception.
+				if ((read && !pte.m_Fields.m_Read) ||
+					(write && !pte.m_Fields.m_Write) ||
+					(execute && !pte.m_Fields.m_Execute)) 
+				{
+					cpuRaiseException(cpu, isStore ? Exception::StorePageFault : Exception::LoadPageFault);
+					break;
+				} else {
+					// TODO: 6. If i > 0 and pa.ppn[i - 1:0] != 0, this is a misaligned superpage; stop and raise a page-fault exception.
+					// TODO: 7. If pte.a = 0, or if the memory access is a store and pte.d = 0, either raise a page-fault exception or...
+
+					// 8. The translation is successful. The translated physical address is given as follows: ...
+					tlbInsert(tlb, vpn, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+					break;
+				}
+			}
+		}
+	}
+}
+
 bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t byteMask, uint32_t& data, bool isInstruction)
 {
 	if (tlb == nullptr || cpuGetPrivLevel(cpu) == PrivLevel::Machine) {
@@ -77,25 +135,7 @@ bool cpuMemRead(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 
 		cpuRaiseException(cpu, Exception::LoadAccessFault);
 	} else {
-		// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
-		const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
-		const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
-		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
-		PageTableEntry pte;
-		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
-			cpuRaiseException(cpu, Exception::LoadAccessFault);
-		} else {
-			if (!pte.m_Fields.m_Valid) {
-				cpuRaiseException(cpu, Exception::LoadPageFault);
-			} else if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
-				cpuRaiseException(cpu, Exception::LoadAccessFault);
-			} else {
-				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
-				tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
-				
-				// Retry instruction on next tick.
-			}
-		}
+		cpuPageTableWalk(cpu, mm, tlb, satp, virtualPageNumber, true, false, isInstruction, false);
 	}
 
 	return false;
@@ -131,40 +171,15 @@ bool cpuMemWrite(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uin
 		return false;
 	}
 
-	// NOTE: If the code below happens in the HW then we can access satp CSR without checking for the current
-	// privilege mode. If it happens in SW we must raise an exception, switch to M-mode and then read the satp.
-	// The problem with a SW implementation is that there are no instructions to update the TLB. So we either 
-	// have to define new instructions (i.e. similarly to lowRISC/Rocket*) or implement this in HW.
-	// (*): If I understood the code correctly (see http://www.lowrisc.org/docs/tagged-memory-v0.1/new-instructions/)
 	const uint32_t satp = cpuGetCSR(cpu, CSR::satp);
 	if ((satp & SATP_MODE_MASK) == 0) {
-		// No translation needed
-		// TODO: Should this check be moved before TLB lookup?
 		if (mmWrite(mm, virtualAddress, byteMask, data)) {
 			return true;
 		}
 
 		cpuRaiseException(cpu, Exception::StoreAccessFault);
 	} else {
-		// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
-		const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
-		const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
-		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
-		PageTableEntry pte;
-		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
-			cpuRaiseException(cpu, Exception::LoadAccessFault);
-		} else {
-			if (!pte.m_Fields.m_Valid) {
-				cpuRaiseException(cpu, Exception::StorePageFault);
-			} else if (pte.m_Fields.m_Write != 1) {
-				cpuRaiseException(cpu, Exception::StoreAccessFault);
-			} else {
-				RISCV_CHECK(pte.m_Fields.m_Read != 0 || pte.m_Fields.m_Write != 0 || pte.m_Fields.m_Execute != 0, "PageTable: 2nd level pages not implemented yet");
-				tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
-
-				// Retry instruction on next tick.
-			}
-		}
+		cpuPageTableWalk(cpu, mm, tlb, satp, virtualPageNumber, false, true, false, true);
 	}
 
 	return false;
