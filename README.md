@@ -9,6 +9,8 @@ Ok, you are still here. My goal for this project is to build a basic RISC-V simu
 
 It's a long way until then, though. Currently the code simulates (poorly) a single cycle CPU. The main focus at the moment is to build a minimal BIOS/Kernel for loading test apps and testing the CPU.
 
+![Screenshot](https://cdn.rawgit.com/jdryg/RISCVEmu/master/img/screenshot_2017_08_30.png.png)
+
 ## 3rd party libraries
 
 This project uses the following 3rd party libraries
