@@ -1,33 +1,48 @@
 #include "page_table.h"
 #include "../memory.h"
 #include "../kernel.h" // kassert()
+#include "../../devices/ram.h"
 
 #define PAGE_SHIFT 12
 #define PAGE_NUMBER_MASK 0xFFFFF000
 #define PAGE_OFFSET_MASK 0x00000FFF
 
-// TODO: Pass the RAM device instead and let the PageTable allocate as much RAM 
-// as it needs (e.g. in case I decide to implement a 2-level PT);
-PageTable* pageTableInit(void* mem)
+void pageTableInit(PageTable* pt, RAM* ram)
 {
-    if(!mem) {
-        return 0;
-    }
-
-    PageTable* pt = (PageTable*)mem;
-    kmemset(pt->m_PTE, 0, sizeof(PageTableEntry) * 1024);
-
-    return pt;
+	pt->m_RAM = ram;
+	pt->m_PTE = (PageTableEntry*)ramAllocPage(ram);
+	kmemset(pt->m_PTE, 0, sizeof(PageTableEntry) * 1024);
 }
 
 int pageTableInsert(PageTable* pt, uint32_t va, uint32_t pa, uint32_t r, uint32_t w, uint32_t x, uint32_t u, uint32_t g)
 {
-//    kprintf("ptInsert(%08X, %08X, %u, %u, %u)\n", va, pa, r, w, x);
+	const uint32_t vpn = (va & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
+	const uint32_t vpn0 = vpn & 1023;
+	const uint32_t vpn1 = (vpn >> 10) & 1023;
 
-    uint32_t vpn = (va & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
+	PageTableEntry* dirPage = &pt->m_PTE[vpn1];
+	if(dirPage->m_Valid == 0) {
+		// Allocate a page and assign it to this master page table entry.
+		uint32_t dirPagePhysicalAddr = (uint32_t)ramAllocPage(pt->m_RAM);
+		dirPage->m_Valid = 1;
+		dirPage->m_Read = 0;
+		dirPage->m_Write = 0;
+		dirPage->m_Execute = 0;
+		dirPage->m_UserModeAccessible = 0;
+		dirPage->m_Global = 0;
+		dirPage->m_Accessed = 0;
+		dirPage->m_Dirty = 0;
+		dirPage->m_RSW = 0;
+		dirPage->m_PhysicalPageNumber = (dirPagePhysicalAddr & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
 
-    PageTableEntry* pte = &pt->m_PTE[vpn & 1023];
-    kassert(pte->m_Valid == 0, "pageTableInsert(): Tried to allocate an already used page. 2-level page table is required.");
+		// Clear the newly allocated page.
+		kmemset((PageTableEntry*)dirPagePhysicalAddr, 0, sizeof(PageTableEntry) * 1024);
+	}
+
+	const uint32_t dirPagePhysicalAddr = dirPage->m_PhysicalPageNumber << PAGE_SHIFT;
+	PageTableEntry* pte = ((PageTableEntry*)dirPagePhysicalAddr) + vpn0;
+
+	kassert(pte->m_Valid == 0, "pageTableInsert(): Tried to allocate an already used page.");
 
 	pte->m_Valid = 1;
 	pte->m_Read = r;
@@ -40,43 +55,59 @@ int pageTableInsert(PageTable* pt, uint32_t va, uint32_t pa, uint32_t r, uint32_
 	pte->m_RSW = 0;
 	pte->m_PhysicalPageNumber = (pa & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
 
-    return 1;
+	return 1;
 }
 
 uint32_t pageTableVPN2PPN(PageTable* pt, uint32_t vpn)
 {
-    PageTableEntry* pte = &pt->m_PTE[vpn & 1023];
-    if(pte->m_Valid == 0) {
-        return 0;
-    }
+	const uint32_t vpn0 = vpn & 1023;
+	const uint32_t vpn1 = (vpn >> 10) & 1023;
 
-    return pte->m_PhysicalPageNumber;
+	PageTableEntry* dirPage = &pt->m_PTE[vpn1];
+	if(dirPage->m_Valid == 0) {
+		return 0;
+	}
+
+	const uint32_t dirPagePhysicalAddr = dirPage->m_PhysicalPageNumber << PAGE_SHIFT;
+	PageTableEntry* pte = ((PageTableEntry*)dirPagePhysicalAddr) + vpn0;
+	if(pte->m_Valid == 0) {
+		return 0;
+	}
+
+	return pte->m_PhysicalPageNumber;
 }
 
 void* pageTableVA2PA(PageTable* pt, void* va)
 {
-    uint32_t vpn = ((uint32_t)va & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
-    uint32_t offset = (uint32_t)va & PAGE_OFFSET_MASK;
+	uint32_t vpn = ((uint32_t)va & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
+	uint32_t offset = (uint32_t)va & PAGE_OFFSET_MASK;
 
-    uint32_t ppn = pageTableVPN2PPN(pt, vpn);
-    if(ppn == 0) {
-        return 0;
-    }
+	uint32_t ppn = pageTableVPN2PPN(pt, vpn);
+	if(ppn == 0) {
+		return 0;
+	}
 
-    return (void*)((ppn << PAGE_SHIFT) | offset);
+	return (void*)((ppn << PAGE_SHIFT) | offset);
 }
 
-PageTableEntry* pageTableGetNextAllocPage(PageTable* pt, PageTableEntry* prev)
+void pageTableFree(PageTable* pt)
 {
-    prev = prev ? prev + 1 : &pt->m_PTE[0];
+	PageTableEntry* pde = pt->m_PTE;
+	for(uint32_t i = 0;i < 1024;++i) {
+		if(pde->m_Valid) {
+			PageTableEntry* dirPage = (PageTableEntry*)(pde->m_PhysicalPageNumber << PAGE_SHIFT);
 
-    while((uint32_t)(prev - pt->m_PTE) < 1024) {
-        if(prev->m_Valid) {
-            return prev;
-        }
+			PageTableEntry* pte = dirPage;
+			for(uint32_t j = 0;j < 1024;++j) {
+				if(pte->m_Valid) {
+					ramFreePage(pt->m_RAM, (void*)(pte->m_PhysicalPageNumber << PAGE_SHIFT));
+				}
+				++pte;
+			}
+			ramFreePage(pt->m_RAM, dirPage);
+		}
 
-        ++prev;
-    }
-
-    return 0;
+		++pde;
+	}
+	ramFreePage(pt->m_RAM, pt->m_PTE);
 }

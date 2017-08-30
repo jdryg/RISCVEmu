@@ -182,21 +182,33 @@ bool cpuMemGet(CPU* cpu, MemoryMap* mm, uint32_t virtualAddress, uint32_t byteMa
 
 	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
 	
-	// TODO: Multilevel page table walk (check RWX for all zeros and move to the next level).
-	const uint32_t pageTablePPN = satp & SATP_PTPPN_MASK;
-	const uint32_t pageTablePhysicalAddr = pageTablePPN << kPageShift; // PT address should be always aligned to page boundaries.
-	const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (virtualPageNumber * sizeof(PageTableEntry));
-	PageTableEntry pte;
-	if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
-		return false;
-	}
+	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << kPageShift;
+	uint32_t level = 1;
+	uint32_t vpnLevel[2] = { virtualPageNumber & 1023, (virtualPageNumber >> 10) & 1023 };
+	while (true) {
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpnLevel[level] * sizeof(PageTableEntry));
+		PageTableEntry pte;
+		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
+			return false;
+		} else {
+			if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
+				return false;
+			} else {
+				if (pte.m_Fields.m_Read != 1 && pte.m_Fields.m_Execute != 1) {
+					if (level == 0) {
+						return false;
+					}
 
-	if (!pte.m_Fields.m_Valid) {
-		return false;
+					--level;
+					pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << kPageShift;
+					continue;
+				}
+
+				const uint32_t offset = virtualAddress & kAddressOffsetMask;
+				const TLB::physical_addr_t physicalAddress = (pte.m_Fields.m_PhysicalPageNumber << kPageShift) | offset;
+				return mmRead(mm, physicalAddress, byteMask, data);
+			}
+		}
 	}
-	
-	const uint32_t offset = virtualAddress & kAddressOffsetMask;
-	const TLB::physical_addr_t physicalAddress = (pte.m_Fields.m_PhysicalPageNumber << kPageShift) | offset;
-	return mmRead(mm, physicalAddress, byteMask, data);
 }
 }

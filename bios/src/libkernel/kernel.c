@@ -215,7 +215,8 @@ int kexec(const char* path, int argc, char** argv)
 	fd_stderr->m_Type = FD_TYPE_TTY;
 	
 	// Allocate a page of RAM for the Page Table and set it to the current Task.
-	PageTable* pageTable = pageTableInit(ramAllocPage(&g_ExternalRAM));
+	PageTable* pageTable = (PageTable*)kmalloc(sizeof(PageTable));
+	pageTableInit(pageTable, &g_ExternalRAM);
 	kassert(pageTable != 0, "(x) kexec(): Not enough memory for page table.");
 	taskSetPageTable(task, pageTable);
 
@@ -290,7 +291,7 @@ int kexec(const char* path, int argc, char** argv)
 	g_ProgramTask = task;
 
 	// Switch to U-mode
-	_switchToUMode((uint32_t)pageTable, hdr.e_entry, stackTop, &g_MainTask->m_Frame[0]);
+	_switchToUMode((uint32_t)pageTable->m_PTE, hdr.e_entry, stackTop, &g_MainTask->m_Frame[0]);
 
 	return 1;
 }
@@ -303,16 +304,8 @@ int kkill()
 	taskFreeAllFileDescriptors(g_ProgramTask);
 
 	// Deallocate all allocated RAM pages including the PageTable itself.
-	PageTableEntry* pte = pageTableGetNextAllocPage(g_ProgramTask->m_PageTable, 0);
-	while(pte) {
-		uint32_t physicalAddr = (pte->m_PhysicalPageNumber << 12);
-//		kmemset((void*)physicalAddr, 0, PAGE_SIZE);
-		ramFreePage(&g_ExternalRAM, (void*)physicalAddr);
-
-		pte = pageTableGetNextAllocPage(g_ProgramTask->m_PageTable, pte);
-	}
-	kmemset(g_ProgramTask->m_PageTable, 0, PAGE_SIZE);
-	ramFreePage(&g_ExternalRAM, g_ProgramTask->m_PageTable);
+	pageTableFree(g_ProgramTask->m_PageTable);
+	kfree(g_ProgramTask->m_PageTable);
 
 	// Destroy the task
 	taskDestroy(g_ProgramTask);

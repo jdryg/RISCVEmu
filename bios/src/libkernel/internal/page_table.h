@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+typedef struct RAM RAM;
+
 typedef struct PageTableEntry
 {
 	uint32_t m_Valid : 1;
@@ -19,15 +21,16 @@ typedef struct PageTableEntry
 
 typedef struct PageTable
 {
-    PageTableEntry m_PTE[1024];
+	RAM* m_RAM;
+    PageTableEntry* m_PTE;
 } PageTable;
 
-PageTable* pageTableInit(void* mem);
+void pageTableInit(PageTable* pt, RAM* ram);
 int pageTableInsert(PageTable* pt, uint32_t va, uint32_t pa, uint32_t r, uint32_t w, uint32_t x, uint32_t u, uint32_t g);
 
 uint32_t pageTableVPN2PPN(PageTable* pt, uint32_t vpn);
 void* pageTableVA2PA(PageTable* pt, void* va);
 
-PageTableEntry* pageTableGetNextAllocPage(PageTable* pt, PageTableEntry* prev);
+void pageTableFree(PageTable* pt);
 
 #endif

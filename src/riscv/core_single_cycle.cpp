@@ -39,9 +39,10 @@ void cpuPageTableWalk(CPU* cpu, MemoryMap* mm, TLB* tlb, uint32_t satp, uint32_t
 	// 1. Let pageTablePPN be satp.ppn * PAGESIZE, and let level = LEVELS - 1. (For Sv32, PAGESIZE = 212 and LEVELS = 2.)
 	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << kPageShift;
 	uint32_t level = 1;
+	uint32_t vpnLevel[2] = { vpn & 1023, (vpn >> 10) & 1023 };
 	while (true) {
 		// 2. Let pte be the value of the PTE at address a + va.vpn[i] * PTESIZE. (For Sv32, PTESIZE=4.)
-		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpnLevel[level] * sizeof(PageTableEntry));
 		PageTableEntry pte;
 		if (!mmRead(mm, pageTableEntryPhysicalAddr, 0xFFFFFFFF, pte.m_Word)) {
 			// 2. If accessing pte violates a PMA or PMP check, raise an access exception.
