@@ -1,6 +1,8 @@
 #include "elf/parser.h"
-#include "riscv/cpu.h"
+#include "riscv/icpu.h"
+#include "riscv/cpu/single_cycle.h"
 #include "riscv/memory_map.h"
+#include "riscv/disasm.h"
 #include "console.h"
 #include "debugger.h"
 #include "debug.h"
@@ -58,7 +60,7 @@ struct App
 {
 	Config m_Config;
 	GLFWwindow* m_GLFWWindow;
-	riscv::CPU* m_CPU;
+	riscv::ICPU* m_CPU;
 	riscv::MemoryMap* m_MemoryMap;
 	riscv::Device* m_ConsoleUART;
 	Console* m_Console;
@@ -191,8 +193,8 @@ int initEmulator(App* app)
 	}
 
 	// Initialize CPU
-	riscv::CPU* cpu = (riscv::CPU*)malloc(sizeof(riscv::CPU));
-	riscv::cpuReset(cpu, entryPointAddr, ramSize - 4);
+	riscv::ICPU* cpu = new riscv::cpu::SingleCycle();
+	cpu->reset(entryPointAddr);
 
 	// Initialize app
 	app->m_CPU = cpu;
@@ -257,7 +259,7 @@ int initEmulator(App* app)
 
 void shutdownEmulator(App* app)
 {
-	free(app->m_CPU);
+	delete app->m_CPU;
 	app->m_CPU = nullptr;
 
 	free(app->m_MemoryDevices);
@@ -483,7 +485,7 @@ void doWin_Debugger(App* app)
 			// TODO: Change scrolling to be able to see the whole address space.
 			const uint32_t ramSize = 1 << 20;
 			const uint32_t numWords = ramSize / 4;
-			const uint32_t pc = cpuGetPC(app->m_CPU);
+			const uint32_t pc = app->m_CPU->getPC();
 
 			static float infoRegionHeight = 80.0f;
 			ImGui::SetNextWindowContentSize(ImVec2(0.0f, numWords * lineHeight));
@@ -526,7 +528,7 @@ void doWin_Debugger(App* app)
 					char disasm[256];
 
 					uint32_t instr;
-					if (!riscv::cpuMemGet(app->m_CPU, app->m_MemoryMap, addr, 0xFFFFFFFF, instr)) {
+					if (!app->m_CPU->getMemWord(app->m_MemoryMap, addr, instr)) {
 						bx::snprintf(disasm, 256, "Unmapped memory location");
 					} else {
 						riscv::disasmInstruction(instr, addr, disasm, 256);
@@ -619,7 +621,7 @@ void doWin_Registers(App* app)
 			char str[256];
 
 			// PC
-			bx::snprintf(str, 256, "%08Xh", riscv::cpuGetPC(app->m_CPU));
+			bx::snprintf(str, 256, "%08Xh", app->m_CPU->getPC());
 			ImGui::InputTextEx("pc", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 
 			// Integer registers
@@ -631,7 +633,7 @@ void doWin_Registers(App* app)
 					for (uint32_t i = 0; i < numControlsPerLine && x < 32; ++i, ++x) {
 						ImGui::SetCursorPosX(i * regControlWidth + ImGui::GetStyle().WindowPadding.x);
 
-						bx::snprintf(str, 256, "%08Xh", riscv::cpuGetRegister(app->m_CPU, x));
+						bx::snprintf(str, 256, "%08Xh", app->m_CPU->getRegister(x));
 						ImGui::InputTextEx(riscv::disasmGetRegisterABIName(x), str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 						ImGui::SameLine();
 					}
@@ -672,7 +674,7 @@ void doWin_Registers(App* app)
 					for (uint32_t i = 0; i < numControlsPerLine && csr < numCSRs; ++i, ++csr) {
 						ImGui::SetCursorPosX(i * csrControlWidth + ImGui::GetStyle().WindowPadding.x);
 
-						bx::snprintf(str, 256, "%08Xh", riscv::cpuGetCSR(app->m_CPU, csrList[csr].m_ID));
+						bx::snprintf(str, 256, "%08Xh", app->m_CPU->getCSR(csrList[csr].m_ID));
 						ImGui::InputTextEx(csrList[csr].m_Name, str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 						ImGui::SameLine();
 					}
@@ -802,10 +804,10 @@ void doWin_PerfCounters(App* app)
 		} else {
 			char str[256];
 
-			bx::snprintf(str, 256, "%" PRIu64, riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::mcycle));
+			bx::snprintf(str, 256, "%" PRIu64, app->m_CPU->getCSR64(riscv::CSR::mcycle));
 			ImGui::InputTextEx("mcycle", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 
-			bx::snprintf(str, 256, "%" PRIu64, riscv::cpuGetCSR64(app->m_CPU, riscv::CSR::minstret));
+			bx::snprintf(str, 256, "%" PRIu64, app->m_CPU->getCSR64(riscv::CSR::minstret));
 			ImGui::InputTextEx("minstret", str, 256, ImVec2(75.0f, 0.0f), ImGuiInputTextFlags_ReadOnly);
 		}
 	}
@@ -1010,13 +1012,13 @@ int main()
 					}
 
 #if ENABLE_TRACING
-					tracePush(&app, riscv::cpuGetPC(app.m_CPU));
+					tracePush(&app, app.m_CPU->getPC());
 #endif
-
-					riscv::cpuTick_SingleCycle(app.m_CPU, app.m_MemoryMap);
 					
-					if ((app.m_Config.m_BreakOnEBREAK && cpuGetOutputPin(app.m_CPU, riscv::OutputPin::Breakpoint)) || 
-						dbgHasCodeBreakpoint(app.m_Dbg, cpuGetPC(app.m_CPU))) 
+					app.m_CPU->tick(app.m_MemoryMap);
+					
+					if ((app.m_Config.m_BreakOnEBREAK && app.m_CPU->getOutputPin(riscv::OutputPin::Breakpoint)) || 
+						dbgHasCodeBreakpoint(app.m_Dbg, app.m_CPU->getPC())) 
 					{
 						breakpointReached = true;
 						break;

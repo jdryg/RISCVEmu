@@ -183,8 +183,12 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\nfd\nfd_common.c" />
     <ClCompile Include="src\nfd\nfd_win.cpp" />
+    <ClCompile Include="src\riscv\alu.cpp" />
+    <ClCompile Include="src\riscv\cache.cpp" />
+    <ClCompile Include="src\riscv\core_5_stages.cpp" />
     <ClCompile Include="src\riscv\core_single_cycle.cpp" />
     <ClCompile Include="src\riscv\cpu.cpp" />
+    <ClCompile Include="src\riscv\cpu\single_cycle.cpp" />
     <ClCompile Include="src\riscv\disasm.cpp" />
     <ClCompile Include="src\riscv\memory_map.cpp" />
     <ClCompile Include="src\riscv\tlb.cpp" />
@@ -245,7 +249,12 @@
     <ClInclude Include="src\json\json.h" />
     <ClInclude Include="src\nfd\common.h" />
     <ClInclude Include="src\nfd\nfd_common.h" />
+    <ClInclude Include="src\riscv\alu.h" />
+    <ClInclude Include="src\riscv\cache.h" />
     <ClInclude Include="src\riscv\cpu.h" />
+    <ClInclude Include="src\riscv\cpu\single_cycle.h" />
+    <ClInclude Include="src\riscv\disasm.h" />
+    <ClInclude Include="src\riscv\icpu.h" />
     <ClInclude Include="src\riscv\memory_map.h" />
     <ClInclude Include="src\riscv\tlb.h" />
   </ItemGroup>

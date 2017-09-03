@@ -1,5 +1,5 @@
-#ifndef TLB_H
-#define TLB_H
+#ifndef RISCV_TLB_H
+#define RISCV_TLB_H
 
 #include <stdint.h>
 

@@ -1,8 +1,7 @@
-#ifndef RISCV_CPU_H
-#define RISCV_CPU_H
+#ifndef RISCV_ICPU_H
+#define RISCV_ICPU_H
 
 #include <stdint.h>
-#include "tlb.h"
 
 #ifndef XLEN
 #define XLEN 32
@@ -10,6 +9,7 @@
 
 #if XLEN == 32
 typedef uint32_t word_t;
+typedef uint64_t dword_t;
 #elif XLEN == 64
 typedef uint64_t word_t;
 #error "Not implemented yet!";
@@ -19,9 +19,6 @@ typedef uint64_t word_t;
 
 namespace riscv
 {
-#define SATP_MODE_MASK        0x80000000
-#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number
-
 struct MemoryMap;
 
 const uint32_t kPageShift = 12; // 4k
@@ -80,6 +77,46 @@ struct BranchOp
 	};
 };
 
+struct IReg
+{
+	enum Enum
+	{
+		zero = 0,
+		ra = 1,
+		sp = 2,
+		gp = 3,
+		tp = 4,
+		t0 = 5,
+		t1 = 6,
+		t2 = 7,
+		s0 = 8,
+		s1 = 9,
+		a0 = 10,
+		a1 = 11,
+		a2 = 12,
+		a3 = 13,
+		a4 = 14,
+		a5 = 15,
+		a6 = 16,
+		a7 = 17,
+		s2 = 18,
+		s3 = 19,
+		s4 = 20, 
+		s5 = 21, 
+		s6 = 22, 
+		s7 = 23,
+		s8 = 24,
+		s9 = 25,
+		s10 = 26,
+		s11 = 27,
+		t3 = 28,
+		t4 = 29,
+		t5 = 30, 
+		t6 = 31
+	};
+};
+
+
 struct CSR
 {
 	enum Enum
@@ -131,45 +168,6 @@ struct CSR
 	};
 };
 
-struct IReg
-{
-	enum Enum
-	{
-		zero = 0,
-		ra = 1,
-		sp = 2,
-		gp = 3,
-		tp = 4,
-		t0 = 5,
-		t1 = 6,
-		t2 = 7,
-		s0 = 8,
-		s1 = 9,
-		a0 = 10,
-		a1 = 11,
-		a2 = 12,
-		a3 = 13,
-		a4 = 14,
-		a5 = 15,
-		a6 = 16,
-		a7 = 17,
-		s2 = 18,
-		s3 = 19,
-		s4 = 20, 
-		s5 = 21, 
-		s6 = 22, 
-		s7 = 23,
-		s8 = 24,
-		s9 = 25,
-		s10 = 26,
-		s11 = 27,
-		t3 = 28,
-		t4 = 29,
-		t5 = 30, 
-		t6 = 31
-	};
-};
-
 struct PrivLevel
 {
 	// 2 bits
@@ -209,29 +207,6 @@ struct OutputPin
 	{
 		Breakpoint
 	};
-};
-
-struct CPUState
-{
-	// User-visible integer state
-	word_t m_IRegs[32];
-	word_t m_PC;
-
-	// Control and Status Registers (CSRs)
-	word_t m_CSR[4096]; // NOTE: Only a handful of CSRs are defined/used but lets have them all :)
-
-	PrivLevel::Enum m_PrivLevel;
-
-	// Outputs
-	bool m_Breakpoint; // Was the last executed instruction an EBREAK?
-};
-
-struct CPU
-{
-	CPUState m_State;
-	CPUState m_NextState;
-	TLB m_ITLB;
-	TLB m_DTLB;
 };
 
 union Instruction
@@ -316,6 +291,26 @@ union PageTableEntry
 	} m_Fields;
 };
 
+class ICPU
+{
+public:
+	virtual ~ICPU()
+	{}
+
+	virtual void reset(word_t pc) = 0;
+	virtual void tick(MemoryMap* mm) = 0;
+
+	virtual word_t getPC() = 0;
+	virtual word_t getRegister(uint32_t reg) = 0;
+	virtual word_t getCSR(uint32_t csr) = 0;
+	virtual dword_t getCSR64(uint32_t csrLow) = 0;
+	virtual word_t getOutputPin(OutputPin::Enum pin) = 0;
+	virtual bool getMemWord(MemoryMap* mm, word_t addr, word_t& data) = 0;
+};
+
+//////////////////////////////////////////////////////////////////////////
+// Helpers
+//
 inline word_t sext(uint32_t v, uint32_t signBitPos)
 {
 	const uint32_t shiftAmount = 31 - signBitPos;
@@ -347,29 +342,23 @@ inline word_t immB(Instruction instr)
 	return sext((instr.B.imm_1_4 << 1) | (instr.B.imm_5_10 << 5) | (instr.B.imm_11 << 11) | (instr.B.imm_12 << 12), 12);
 }
 
-word_t cpuGetPC(CPU* cpu);
-void cpuSetPC(CPU* cpu, word_t val);
-word_t cpuGetRegister(CPU* cpu, uint32_t reg);
-void cpuSetRegister(CPU* cpu, uint32_t reg, word_t val);
-word_t cpuReadCSR(CPU* cpu, uint32_t csr);
-word_t cpuGetCSR(CPU* cpu, uint32_t csr); // Same as GetCSR() but without the privilege checks. Used by the page table walker.
-void cpuWriteCSR(CPU* cpu, uint32_t csr, word_t val);
-uint32_t cpuGetPrivLevel(CPU* cpu);
-void cpuRaiseException(CPU* cpu, Exception::Enum cause);
-void cpuReturnFromException(CPU* cpu);
-void cpuIncCounter64(CPU* cpu, CSR::Enum csrLow, uint32_t n);
-void cpuShadowCSR64(CPU* cpu, CSR::Enum dst, CSR::Enum src);
-uint64_t cpuReadCSR64(CPU* cpu, CSR::Enum csrLow);
-uint64_t cpuGetCSR64(CPU* cpu, CSR::Enum csrLow);
-uint32_t cpuGetOutputPin(CPU* cpu, OutputPin::Enum pin);
-bool cpuMemGet(CPU* cpu, MemoryMap* mem, uint32_t addr, uint32_t byteMask, uint32_t& data);
+#define CSR_RW_MASK 0xC00
+#define CSR_RW_SHIFT 10
 
-// core_single_cycle.cpp
-void cpuReset(CPU* cpu, word_t pc, word_t sp);
-void cpuTick_SingleCycle(CPU* cpu, MemoryMap* mem);
+#define CSR_PRIV_MASK 0x300
+#define CSR_PRIV_SHIFT 8
 
-// core_5_stages.cpp
-void cpuTick_5stage(CPU* cpu, MemoryMap* mm);
+#define CSR_FLAG_RO 0x03
+
+inline bool csrIsReadOnly(uint32_t csr)
+{
+	return ((csr & CSR_RW_MASK) >> CSR_RW_SHIFT) == CSR_FLAG_RO;
+}
+
+inline uint32_t csrGetMinPrivLevel(uint32_t csr)
+{
+	return ((csr & CSR_PRIV_MASK) >> CSR_PRIV_SHIFT);
+}
 }
 
 #endif

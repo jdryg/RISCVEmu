@@ -1,6 +1,7 @@
-#include "cpu.h"
-#include "../debug.h"
+#include "disasm.h"
+#include "icpu.h"
 #include "memory_map.h"
+#include "../debug.h"
 #include <bx/string.h>
 
 namespace riscv
@@ -279,7 +280,7 @@ void disasmInstruction(uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 	}
 }
 
-void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t addr, char* buf, uint32_t len)
+void disasmGetInstrOperandValues(ICPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t addr, char* buf, uint32_t len)
 {
 	*buf = '\0';
 
@@ -299,14 +300,14 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		case 0: // LB
 		case 4: // LBU
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0x000000FF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
-					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
 					s_RegABIName[instr.I.rs1], rs1v,
 					memAddr, val);
 			}
@@ -315,14 +316,14 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		case 1: // LH
 		case 5: // LHU
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
-					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
 					s_RegABIName[instr.I.rs1], rs1v,
 					memAddr, val);
 			}
@@ -330,14 +331,14 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		break;
 		case 2: // LW
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.I.rs1);
 			uint32_t memAddr = rs1v + immI(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0xFFFFFFFF, val)) {
 				bx::snprintf(buf, len, "Failed to read memory location %08Xh", memAddr);
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
-					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+					s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
 					s_RegABIName[instr.I.rs1], rs1v,
 					memAddr, val);
 			}
@@ -353,11 +354,11 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		switch (instr.I.funct3) {
 		case ALUOp::AddSub:
 			if (instr.I.rs1 == 0) {
-				bx::snprintf(buf, len, "%s = %08Xh", s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd));
+				bx::snprintf(buf, len, "%s = %08Xh", s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd));
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh", 
-					s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-					s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+					s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
+					s_RegABIName[instr.I.rs1], cpu->getRegister(instr.I.rs1));
 			}
 			break;
 		case ALUOp::ShiftLeft:
@@ -366,33 +367,33 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		case ALUOp::Or:
 		case ALUOp::And:
 			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+				s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpu->getRegister(instr.I.rs1));
 			break;
 		case ALUOp::SLT:
 			// Show set/not set
 			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+				s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpu->getRegister(instr.I.rs1));
 			break;
 		case ALUOp::SLTU:
 			// Show set/not set
 			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
-				s_RegABIName[instr.I.rs1], cpuGetRegister(cpu, instr.I.rs1));
+				s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
+				s_RegABIName[instr.I.rs1], cpu->getRegister(instr.I.rs1));
 			break;
 		}
 		break;
 	case Opcode::AUIPC:
 		bx::snprintf(buf, len, "%s = %08Xh\npc = %08Xh",
-			s_RegABIName[instr.U.rd], cpuGetRegister(cpu, instr.U.rd),
+			s_RegABIName[instr.U.rd], cpu->getRegister(instr.U.rd),
 			addr);
 		break;
 	case Opcode::Store:
 		switch (instr.S.funct3) {
 		case 0: // SB
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0x000000FF, val)) {
@@ -400,14 +401,14 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %02Xh",
 					s_RegABIName[instr.S.rs1], rs1v,
-					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					s_RegABIName[instr.S.rs2], cpu->getRegister(instr.S.rs2),
 					memAddr, val);
 			}
 		}
 		break;
 		case 1: // SH
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
@@ -415,14 +416,14 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %04Xh",
 					s_RegABIName[instr.S.rs1], rs1v,
-					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					s_RegABIName[instr.S.rs2], cpu->getRegister(instr.S.rs2),
 					memAddr, val);
 			}
 		}
 		break;
 		case 2: // SW
 		{
-			uint32_t rs1v = cpuGetRegister(cpu, instr.S.rs1);
+			uint32_t rs1v = cpu->getRegister(instr.S.rs1);
 			uint32_t memAddr = rs1v + immS(instr);
 			uint32_t val;
 			if (!mmGet(mm, memAddr, 0x0000FFFF, val)) {
@@ -430,7 +431,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			} else {
 				bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n[%08Xh] = %08Xh",
 					s_RegABIName[instr.S.rs1], rs1v,
-					s_RegABIName[instr.S.rs2], cpuGetRegister(cpu, instr.S.rs2),
+					s_RegABIName[instr.S.rs2], cpu->getRegister(instr.S.rs2),
 					memAddr, val);
 			}
 		}
@@ -450,20 +451,20 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		case ALUOp::Or:
 		case ALUOp::And:
 			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\n%s = %08Xh",
-				s_RegABIName[instr.R.rd], cpuGetRegister(cpu, instr.R.rd),
-				s_RegABIName[instr.R.rs1], cpuGetRegister(cpu, instr.R.rs1),
-				s_RegABIName[instr.R.rs2], cpuGetRegister(cpu, instr.R.rs2));
+				s_RegABIName[instr.R.rd], cpu->getRegister(instr.R.rd),
+				s_RegABIName[instr.R.rs1], cpu->getRegister(instr.R.rs1),
+				s_RegABIName[instr.R.rs2], cpu->getRegister(instr.R.rs2));
 			break;
 		}
 		break;
 	case Opcode::LUI:
 		bx::snprintf(buf, len, "%s = %08Xh", 
-			s_RegABIName[instr.U.rd], cpuGetRegister(cpu, instr.U.rd));
+			s_RegABIName[instr.U.rd], cpu->getRegister(instr.U.rd));
 		break;
 	case Opcode::Branch:
 	{
-		uint32_t rs1v = cpuGetRegister(cpu, instr.B.rs1);
-		uint32_t rs2v = cpuGetRegister(cpu, instr.B.rs2);
+		uint32_t rs1v = cpu->getRegister(instr.B.rs1);
+		uint32_t rs2v = cpu->getRegister(instr.B.rs2);
 		uint32_t targetAddr = addr + immB(instr);
 
 		bool jump = false;
@@ -486,7 +487,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 	break;
 	case Opcode::JALR:
 	{
-		uint32_t rs1v = cpuGetRegister(cpu, instr.I.rs1);
+		uint32_t rs1v = cpu->getRegister(instr.I.rs1);
 		uint32_t targetAddr = (rs1v + immI(instr)) & 0xFFFFFFFE;
 		if (instr.I.rd == 0 && instr.I.rs1 == 1 && instr.I.imm == 0) {
 			bx::snprintf(buf, len, "Return to %08Xh", targetAddr);
@@ -496,7 +497,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 				targetAddr);
 		} else {
 			bx::snprintf(buf, len, "%s = %08Xh\n%s = %08Xh\nTarget = %08Xh",
-				s_RegABIName[instr.I.rd], cpuGetRegister(cpu, instr.I.rd),
+				s_RegABIName[instr.I.rd], cpu->getRegister(instr.I.rd),
 				s_RegABIName[instr.I.rs1], rs1v, 
 				targetAddr);
 		}
@@ -511,7 +512,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 			// call
 		} else {
 			bx::snprintf(buf, len, "%s = %08Xh\nTarget = %08Xh", 
-				s_RegABIName[instr.J.rd], cpuGetRegister(cpu, instr.J.rd),
+				s_RegABIName[instr.J.rd], cpu->getRegister(instr.J.rd),
 				targetAddr);
 		}
 	}
@@ -521,7 +522,7 @@ void disasmGetInstrOperandValues(CPU* cpu, MemoryMap* mm, uint32_t ir, uint32_t 
 		switch (instr.I.imm) {
 		case 0: // ECALL
 		{
-			uint32_t a0v = cpuGetRegister(cpu, IReg::a0);
+			uint32_t a0v = cpu->getRegister(IReg::a0);
 			bx::snprintf(buf, len, "syscall %04Xh (decimal %u)", a0v, a0v);
 			break;
 		}
