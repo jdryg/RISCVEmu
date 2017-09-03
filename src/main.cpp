@@ -1,6 +1,7 @@
 #include "elf/parser.h"
 #include "riscv/icpu.h"
 #include "riscv/cpu/single_cycle.h"
+#include "riscv/cpu/multi_cycle.h"
 #include "riscv/memory_map.h"
 #include "riscv/disasm.h"
 #include "console.h"
@@ -114,6 +115,7 @@ struct App
 #endif
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
+		m_Config.m_CPUType = CPUType::SingleCycle;
 		m_Config.m_ForceReloadKernelELF = false;
 		m_Config.m_KernelELFFile[0] = '\0';
 		m_Config.m_VHDFile[0] = '\0';
@@ -193,7 +195,13 @@ int initEmulator(App* app)
 	}
 
 	// Initialize CPU
-	riscv::ICPU* cpu = new riscv::cpu::SingleCycle();
+	riscv::ICPU* cpu = nullptr;
+	if (app->m_Config.m_CPUType == CPUType::MultiCycle) {
+		cpu = new riscv::cpu::MultiCycle();
+	} else {
+		cpu = new riscv::cpu::SingleCycle();
+	}
+	RISCV_CHECK(cpu != nullptr, "Failed to initialize CPU");
 	cpu->reset(entryPointAddr);
 
 	// Initialize app
@@ -378,6 +386,13 @@ void doWin_Setup(App* app)
 	if (ImGui::BeginDock("Setup", &opened, 0)) {
 		if (!app->m_CPU) {
 			if (ImGui::CollapsingHeader("System configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
+				const char* cpuTypes[] = {
+					"Single Cycle",
+					"Multi Cycle"
+				};
+				ImGui::PushItemWidth(-60.0f);
+				ImGui::Combo("CPU", &app->m_Config.m_CPUType, &cpuTypes[0], BX_COUNTOF(cpuTypes));
+
 				ImGui::PushItemWidth(-60.0f);
 				ImGui::SliderInt("RAM [MB]", &app->m_Config.m_RAMSizeMB, 1, 16);
 

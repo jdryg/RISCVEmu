@@ -61,12 +61,21 @@ bool configLoad(Config* cfg, const char* filename)
 		return false;
 	}
 	
+	json_token* cpuTypeToken = json_query(toks, num, "CPUType");
 	json_token* kernelELFToken = json_query(toks, num, "KernelELF");
 	json_token* ramSizeToken = json_query(toks, num, "RAMSizeMB");
 	json_token* simSpeedToken = json_query(toks, num, "SimSpeed");
 	json_token* forceReloadKernelToken = json_query(toks, num, "ForceReloadKernelELF");
 	json_token* vhdToken = json_query(toks, num, "VHD");
 	json_token* breakOnEBREAKToken = json_query(toks, num, "BreakOnEBREAK");
+
+	if (cpuTypeToken) {
+		if (!strncmp(cpuTypeToken->str, "single_cycle", 12)) {
+			cfg->m_CPUType = CPUType::SingleCycle;
+		} else if (!strncmp(cpuTypeToken->str, "multi_cycle", 11)) {
+			cfg->m_CPUType = CPUType::MultiCycle;
+		}
+	}
 
 	if (kernelELFToken) {
 		unescapeString(kernelELFToken->str, kernelELFToken->len, cfg->m_KernelELFFile);
@@ -107,6 +116,7 @@ bool configSave(Config* cfg, const char* filename)
 	escapeString(cfg->m_VHDFile, vhdFile);
 
 	fprintf(f, "{\n");
+	fprintf(f, "\t\"CPUType\": \"%s\",\n", cfg->m_CPUType == CPUType::MultiCycle ? "multi_cycle" : "single_cycle");
 	fprintf(f, "\t\"KernelELF\": \"%s\",\n", kernelFile);
 	fprintf(f, "\t\"SimSpeed\": \"%d\",\n", cfg->m_SimSpeed);
 	fprintf(f, "\t\"RAMSizeMB\": \"%d\",\n", cfg->m_RAMSizeMB);
