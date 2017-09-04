@@ -1,0 +1,353 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="src\config.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\console.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\debugger.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui_impl_glfw.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\elf\parser.cpp">
+      <Filter>src\elf</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\imgui.cpp">
+      <Filter>src\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\imgui_demo.cpp">
+      <Filter>src\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\imgui_draw.cpp">
+      <Filter>src\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\widgets\imgui_dock.cpp">
+      <Filter>src\imgui\widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="src\json\json.cpp">
+      <Filter>src\json</Filter>
+    </ClCompile>
+    <ClCompile Include="src\nfd\nfd_common.c">
+      <Filter>src\nfd</Filter>
+    </ClCompile>
+    <ClCompile Include="src\nfd\nfd_win.cpp">
+      <Filter>src\nfd</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\alu.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\cache.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\disasm.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\memory_map.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\tlb.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\cpu\single_cycle.cpp">
+      <Filter>src\riscv\cpu</Filter>
+    </ClCompile>
+    <ClCompile Include="src\riscv\cpu\multi_cycle.cpp">
+      <Filter>src\riscv\cpu</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\allocator.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\amalgamated.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\bx.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\commandline.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\crtnone.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\debug.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\dtoa.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\file.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\filepath.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\math.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\mutex.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\os.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\process.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\semaphore.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\string.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\sort.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\thread.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+    <ClCompile Include="bx\src\timer.cpp">
+      <Filter>bx\src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\config.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\console.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\debug.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\debugger.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui_impl_glfw.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\elf\parser.h">
+      <Filter>src\elf</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\IconsFontAwesome.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\imconfig.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\imgui.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\imgui_internal.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\imgui_user.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\stb_rect_pack.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\stb_textedit.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\stb_truetype.h">
+      <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\widgets\breakpoint_button.h">
+      <Filter>src\imgui\widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\widgets\imgui_dock.h">
+      <Filter>src\imgui\widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\widgets\imgui_keyboard_input.h">
+      <Filter>src\imgui\widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\widgets\imgui_keyboard_input.inl">
+      <Filter>src\imgui\widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\widgets\imgui_memory_editor.h">
+      <Filter>src\imgui\widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="src\json\json.h">
+      <Filter>src\json</Filter>
+    </ClInclude>
+    <ClInclude Include="src\nfd\common.h">
+      <Filter>src\nfd</Filter>
+    </ClInclude>
+    <ClInclude Include="src\nfd\nfd_common.h">
+      <Filter>src\nfd</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\alu.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\cache.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\disasm.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\icpu.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\memory_map.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\tlb.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\cpu\single_cycle.h">
+      <Filter>src\riscv\cpu</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\cpu\multi_cycle.h">
+      <Filter>src\riscv\cpu</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\allocator.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\bx.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\commandline.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\config.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\cpu.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\debug.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\endian.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\error.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\file.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\filepath.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\float4x4_t.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\handlealloc.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\hash.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\macros.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\maputil.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\math.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\mpscqueue.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\mutex.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\os.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\platform.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\pixelformat.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\process.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\readerwriter.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\ringbuffer.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\rng.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\semaphore.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\simd_t.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\sort.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\spscqueue.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\string.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\thread.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\timer.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+    <ClInclude Include="bx\include\bx\uint32_t.h">
+      <Filter>bx\include\bx</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{5abc1af7-e9bd-47a9-b588-246ff257513c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\elf">
+      <UniqueIdentifier>{0474843b-a7d3-494f-ab20-5760de766d62}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\imgui">
+      <UniqueIdentifier>{1854cf90-9542-4748-ae07-944ad99bbc6f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\imgui\widgets">
+      <UniqueIdentifier>{a5166685-284c-493b-8043-df785a8554b6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\json">
+      <UniqueIdentifier>{83492efc-9d67-4005-9fbb-ea57c1f72db8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\nfd">
+      <UniqueIdentifier>{b5731d31-1c42-41e8-a53a-316c3ce6bd2a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\riscv">
+      <UniqueIdentifier>{60d5c121-e4f7-4bba-8cb2-bda16ca8e704}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\riscv\cpu">
+      <UniqueIdentifier>{eb6ee757-8fcb-4727-b66b-1ebf475c8bde}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="bx">
+      <UniqueIdentifier>{c4d64971-ad63-4a78-a41d-97c2c99a4a0e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="bx\include">
+      <UniqueIdentifier>{474663ed-09f4-4100-9345-5486de74b247}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="bx\include\bx">
+      <UniqueIdentifier>{5652fb17-a91b-4dcc-91cc-ce9be60ff7ac}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="bx\src">
+      <UniqueIdentifier>{cde8141e-bd43-4c21-a08b-6d80fbc06f35}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\imgui\imgui_user.inl">
+      <Filter>src\imgui</Filter>
+    </None>
+  </ItemGroup>
+</Project>
