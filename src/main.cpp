@@ -25,8 +25,6 @@
 #include <malloc.h>
 #include <memory.h>
 
-#define ENABLE_TRACING         0
-
 #define MAX_STDIN_BUFFER       256
 
 #define CONSOLE_COLS           80
@@ -43,6 +41,8 @@
 #define UI_WIN_TERMINAL        0x00000010
 #define UI_WIN_PERF_COUNTERS   0x00000020
 #define UI_WIN_MEMORY_EDITOR   0x00000040
+#define UI_WIN_PAGE_TABLE      0x00000080
+#define UI_WIN_TRACING         0x00000100
 
 #define KERNEL_BASE_ADDR       0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
 #define RAM_BASE_ADDR          0x00100000
@@ -83,11 +83,11 @@ struct App
 	char m_StdInBuffer[MAX_STDIN_BUFFER];
 	uint32_t m_WinVis;
 
-#if ENABLE_TRACING
-	uint32_t* m_CPUTrace;
+	riscv::CPUState* m_CPUTrace;
 	uint32_t m_NumCPUTraces;
 	uint32_t m_CPUTraceCapacity;
-#endif
+	uint32_t m_SelectedTraceFrame;
+	bool m_EnableTracing;
 
 	App(uint32_t visibleWindows)
 		: m_GLFWWindow(nullptr)
@@ -108,11 +108,11 @@ struct App
 		, m_NumMemoryDevices(0)
 		, m_SelectedMemDevice(-1)
 		, m_MemDevicesComboStr(nullptr)
-#if ENABLE_TRACING
 		, m_CPUTrace(nullptr)
 		, m_NumCPUTraces(0)
 		, m_CPUTraceCapacity(0)
-#endif
+		, m_EnableTracing(false)
+		, m_SelectedTraceFrame(~0u)
 	{
 		bx::memSet(m_StdInBuffer, 0, sizeof(char) * MAX_STDIN_BUFFER);
 		m_Config.m_CPUType = CPUType::SingleCycle;
@@ -128,17 +128,42 @@ struct App
 	{}
 };
 
-#if ENABLE_TRACING
-void tracePush(App* app, uint32_t pc)
+riscv::CPUState* tracePush(App* app)
 {
 	if (app->m_NumCPUTraces + 1 > app->m_CPUTraceCapacity) {
-		app->m_CPUTraceCapacity = app->m_CPUTraceCapacity ? (app->m_CPUTraceCapacity * 3) / 2 : 256;
-		app->m_CPUTrace = (uint32_t*)realloc(app->m_CPUTrace, sizeof(uint32_t) * app->m_CPUTraceCapacity);
+		app->m_CPUTraceCapacity += app->m_Config.m_SimSpeed * 2; // Grow the trace for approx. 2 sec of run-time
+		app->m_CPUTrace = (riscv::CPUState*)realloc(app->m_CPUTrace, sizeof(riscv::CPUState) * app->m_CPUTraceCapacity);
 	}
 
-	app->m_CPUTrace[app->m_NumCPUTraces++] = pc;
+	return &app->m_CPUTrace[app->m_NumCPUTraces++];
 }
-#endif
+
+void traceClear(App* app)
+{
+	app->m_NumCPUTraces = 0;
+	app->m_SelectedTraceFrame = ~0u;
+}
+
+void traceSave(App* app, const char* filename)
+{
+	FILE* f = fopen(filename, "w");
+	if (!f) {
+		return;
+	}
+
+	const uint32_t numFrames = app->m_NumCPUTraces;
+	for (uint32_t i = 0; i < numFrames; ++i) {
+		const riscv::CPUState* state = &app->m_CPUTrace[i];
+		fprintf(f, "%08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X %08X\n"
+			, state->m_PC
+			, state->m_IRegs[ 0], state->m_IRegs[ 1], state->m_IRegs[ 2], state->m_IRegs[ 3], state->m_IRegs[ 4], state->m_IRegs[ 5], state->m_IRegs[ 6], state->m_IRegs[ 7]
+			, state->m_IRegs[ 8], state->m_IRegs[ 9], state->m_IRegs[10], state->m_IRegs[11], state->m_IRegs[12], state->m_IRegs[13], state->m_IRegs[14], state->m_IRegs[15]
+			, state->m_IRegs[16], state->m_IRegs[17], state->m_IRegs[18], state->m_IRegs[19], state->m_IRegs[20], state->m_IRegs[21], state->m_IRegs[22], state->m_IRegs[23]
+			, state->m_IRegs[24], state->m_IRegs[25], state->m_IRegs[26], state->m_IRegs[27], state->m_IRegs[28], state->m_IRegs[29], state->m_IRegs[30], state->m_IRegs[31]);
+	}
+
+	fclose(f);
+}
 
 uint8_t* readFile(const char* filename, uint32_t& fileSize)
 {
@@ -285,6 +310,36 @@ void shutdownEmulator(App* app)
 
 	dbgDestroy(app->m_Dbg);
 	app->m_Dbg = nullptr;
+
+	free(app->m_CPUTrace);
+	app->m_CPUTrace = nullptr;
+	app->m_CPUTraceCapacity = 0;
+	app->m_NumCPUTraces = 0;
+}
+
+void focusMemoryEditorAt(App* app, uint32_t addr)
+{
+	// Find the memory device...
+	int deviceID = -1;
+	const uint32_t numMemDevices = app->m_NumMemoryDevices;
+	for (uint32_t i = 0; i < numMemDevices; ++i) {
+		MemoryDeviceDesc* desc = &app->m_MemoryDevices[i];
+		if (desc->m_BaseAddr <= addr && addr < desc->m_BaseAddr + desc->m_Size) {
+			deviceID = (int)i;
+			break;
+		}
+	}
+
+	if (deviceID == -1) {
+		// Address not found.
+		return;
+	}
+
+	ImGui::SetDockActive("Memory Editor");
+	app->m_SelectedMemDevice = deviceID;
+
+	const uint32_t relAddr = addr - app->m_MemoryDevices[deviceID].m_BaseAddr;
+	app->m_MemoryEditor.GotoAddrAndHighlight(relAddr, relAddr);
 }
 
 void doMainMenu(App* app)
@@ -319,6 +374,12 @@ void doMainMenu(App* app)
 			}
 			if (ImGui::MenuItem("Memory Editor", nullptr)) {
 				app->m_WinVis |= UI_WIN_MEMORY_EDITOR;
+			}
+			if (ImGui::MenuItem("Page Table", nullptr)) {
+				app->m_WinVis |= UI_WIN_PAGE_TABLE;
+			}
+			if (ImGui::MenuItem("Tracing", nullptr)) {
+				app->m_WinVis |= UI_WIN_TRACING;
 			}
 
 			ImGui::EndMenu();
@@ -599,7 +660,7 @@ void doWin_Debugger(App* app)
 				char str[1024];
 
 				uint32_t nextInstr;
-				if (!riscv::mmRead(app->m_MemoryMap, pc, 0xFFFFFFFF, nextInstr)) {
+				if (!app->m_CPU->getMemWord(app->m_MemoryMap, pc, nextInstr)) {
 					bx::snprintf(str, 1024, "Unmapped memory address");
 				} else {
 					riscv::disasmGetInstrOperandValues(app->m_CPU, app->m_MemoryMap, nextInstr, pc, str, 1024);
@@ -859,6 +920,161 @@ void doWin_MemoryEditor(App* app)
 	}
 }
 
+void doWin_PageTable(App* app)
+{
+	bool opened = (app->m_WinVis & UI_WIN_PAGE_TABLE) != 0;
+	if (ImGui::BeginDock("Page Table", &opened, ImGuiWindowFlags_NoScrollbar)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			const word_t satp = app->m_CPU->getCSR(riscv::CSR::satp);
+			ImGui::Text("satp: 0x%08X", satp);
+
+			const uint32_t mode = (satp & SATP_MODE_MASK);
+			if (mode == 0) {
+				ImGui::Text("satp MODE bit is 0. No address translation takes place.");
+			} else {
+				const word_t pageDirPhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
+				// 1024 super pages
+				for (uint32_t i = 0; i < 1024; ++i) {
+					const word_t pdeAddr = pageDirPhysicalAddr + i * sizeof(riscv::PageTableEntry);
+
+					riscv::PageTableEntry pde;
+					if (!riscv::mmGet(app->m_MemoryMap, pdeAddr, 0xFFFFFFFF, pde.m_Word)) {
+						continue;
+					}
+
+					if (!pde.m_Fields.m_Valid) {
+						continue;
+					}
+
+					const word_t pageTablePhysicalAddr = (pde.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT);
+
+					char nodeStr[256];
+					bx::snprintf(nodeStr, 256, "PDE @ 0x%08X -> 0x%08X", pdeAddr, pageTablePhysicalAddr);
+					if (ImGui::TreeNode(nodeStr)) {
+						ImGui::Columns(3, nullptr, true);
+						ImGui::SetColumnOffset(1, 108.0f);
+						ImGui::SetColumnOffset(2, 196.0f);
+						ImGui::Text("Virtual");
+						ImGui::NextColumn();
+						ImGui::Text("Physical");
+						ImGui::NextColumn();
+						ImGui::NextColumn();
+						ImGui::Separator();
+
+						// 1024 page table entries in PageTable.
+						for (uint32_t j = 0; j < 1024; ++j) {
+							const word_t pteAddr = pageTablePhysicalAddr + j * sizeof(riscv::PageTableEntry);
+
+							riscv::PageTableEntry pte;
+							if (!riscv::mmGet(app->m_MemoryMap, pteAddr, 0xFFFFFFFF, pte.m_Word)) {
+								continue;
+							}
+
+							if (!pte.m_Fields.m_Valid) {
+								continue;
+							}
+
+							const word_t virtualPageAddr = ((i << PAGE_SHIFT) + j) << PAGE_SHIFT;
+							const word_t physicalPageAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
+							ImGui::PushID(virtualPageAddr);
+							ImGui::Text("0x%08X", virtualPageAddr);
+							ImGui::NextColumn();
+							ImGui::Text("0x%08X", physicalPageAddr);
+							ImGui::NextColumn();
+							if (ImGui::Button(ICON_FA_SEARCH)) {
+								focusMemoryEditorAt(app, physicalPageAddr);
+							}
+							ImGui::NextColumn();
+							ImGui::PopID();
+						}
+
+						ImGui::Columns(1);
+						ImGui::TreePop();
+					}
+				}
+			}
+		}
+	}
+	ImGui::EndDock();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_PAGE_TABLE;
+	} else {
+		app->m_WinVis |= UI_WIN_PAGE_TABLE;
+	}
+}
+
+void doWin_Tracing(App* app)
+{
+	bool opened = (app->m_WinVis & UI_WIN_TRACING) != 0;
+	if (ImGui::BeginDock("Trace", &opened, 0)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			ImGui::Checkbox("Enable tracing", &app->m_EnableTracing);
+			ImGui::TextWrapped("WARNING: Tracing might consume a lot of memory and make the emulator unresponsive or cause a crash.");
+
+			if (ImGui::Button("Clear trace")) {
+				traceClear(app);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Save...")) {
+				nfdchar_t* outPath = nullptr;
+				nfdresult_t result = NFD_SaveDialog("trace", nullptr, &outPath);
+				if (result == NFD_OKAY) {
+					traceSave(app, outPath);
+					free(outPath);
+				}
+			}
+
+			ImGui::SetNextWindowContentWidth(3500.0f);
+			ImGui::BeginChild("##frames", ImVec2(-1, -1), true, ImGuiWindowFlags_HorizontalScrollbar);
+			{
+				ImGui::Columns(2, 0, true);
+				ImGui::SetColumnOffset(0, ImGui::GetScrollX());
+				ImGui::SetColumnOffset(1, -ImGui::GetScrollX() + 80.0f);
+
+				ImGuiListClipper clipper(app->m_NumCPUTraces);
+				while (clipper.Step()) {
+					for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+						const riscv::CPUState* state = &app->m_CPUTrace[i];
+
+						char addrStr[32];
+						bx::snprintf(addrStr, 32, "%08Xh", state->m_PC);
+						ImGui::PushID(i);
+						if (ImGui::Selectable(addrStr, app->m_SelectedTraceFrame == (uint32_t)i, ImGuiSelectableFlags_SpanAllColumns)) {
+							app->m_SelectedTraceFrame = i;
+						}
+
+						ImGui::SetItemAllowOverlap();
+						ImGui::NextColumn();
+
+						for (uint32_t x = 1; x < 32; ++x) {
+							ImGui::Text("%s: 0x%08X", riscv::disasmGetRegisterABIName(x), state->m_IRegs[x - 1]);
+							ImGui::SameLine();
+						}
+
+						ImGui::NextColumn();
+						ImGui::PopID();
+					}
+				}
+
+				ImGui::Columns(1);
+			}
+			ImGui::EndChild();
+		}
+	}
+	ImGui::EndDock();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_TRACING;
+	} else {
+		app->m_WinVis |= UI_WIN_TRACING;
+	}
+}
+
 void doUI(App* app)
 {
 	doMainMenu(app);
@@ -889,6 +1105,14 @@ void doUI(App* app)
 
 	if (app->m_WinVis & UI_WIN_MEMORY_EDITOR) {
 		doWin_MemoryEditor(app);
+	}
+
+	if (app->m_WinVis & UI_WIN_PAGE_TABLE) {
+		doWin_PageTable(app);
+	}
+
+	if (app->m_WinVis & UI_WIN_TRACING) {
+		doWin_Tracing(app);
 	}
 
 	//ImGui::Begin("Style Editor", nullptr); 
@@ -950,13 +1174,22 @@ void ImGui_InitStyle()
 	style.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
 	style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-//	style.Colors[ImGuiCol_TooltipBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
+	style.Colors[ImGuiCol_PopupBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.94f);
 	style.Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
 }
 
 int main()
 {
-	App app(UI_WIN_SETUP | UI_WIN_DEBUG | UI_WIN_REGISTERS | UI_WIN_BREAKPOINTS | UI_WIN_TERMINAL | UI_WIN_PERF_COUNTERS | UI_WIN_MEMORY_EDITOR);
+	App app(0 
+		| UI_WIN_SETUP 
+		| UI_WIN_DEBUG 
+		| UI_WIN_REGISTERS 
+		| UI_WIN_BREAKPOINTS 
+		| UI_WIN_TERMINAL 
+		| UI_WIN_PERF_COUNTERS 
+		| UI_WIN_MEMORY_EDITOR 
+		| UI_WIN_PAGE_TABLE
+		| UI_WIN_TRACING);
 
 	if (configLoad(&app.m_Config, "./config.json")) {
 		app.m_KernelELFData = readFile(app.m_Config.m_KernelELFFile, app.m_KernelELFSize);
@@ -1026,11 +1259,12 @@ int main()
 						}
 					}
 
-#if ENABLE_TRACING
-					tracePush(&app, app.m_CPU->getPC());
-#endif
+					if (app.m_EnableTracing) {
+						app.m_CPU->readState(tracePush(&app));
+					}
 					
-					app.m_CPU->tick(app.m_MemoryMap);
+					// Tick the CPU until a new instruction is about to be fetched.
+					while (!app.m_CPU->tick(app.m_MemoryMap));
 					
 					if ((app.m_Config.m_BreakOnEBREAK && app.m_CPU->getOutputPin(riscv::OutputPin::Breakpoint)) || 
 						dbgHasCodeBreakpoint(app.m_Dbg, app.m_CPU->getPC())) 

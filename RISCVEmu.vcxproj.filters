@@ -306,6 +306,9 @@
     <ClInclude Include="bx\include\bx\uint32_t.h">
       <Filter>bx\include\bx</Filter>
     </ClInclude>
+    <ClInclude Include="src\riscv\defines.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="src">

@@ -21,3 +21,4 @@
 /bin/config.json
 /bios/src/libkernel/internal/*.o
 /x64/Release
+/elfs/*.asm

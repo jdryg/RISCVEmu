@@ -2,29 +2,11 @@
 #define RISCV_ICPU_H
 
 #include <stdint.h>
-
-#ifndef XLEN
-#define XLEN 32
-#endif
-
-#if XLEN == 32
-typedef uint32_t word_t;
-typedef uint64_t dword_t;
-#elif XLEN == 64
-typedef uint64_t word_t;
-#error "Not implemented yet!";
-#else
-#error "Invalid XLEN value";
-#endif
+#include "defines.h"
 
 namespace riscv
 {
 struct MemoryMap;
-
-const uint32_t kPageShift = 12; // 4k
-const uint32_t kPageSize = 1 << kPageShift; // virtual and physical
-const uint32_t kAddressOffsetMask = (1 << kPageShift) - 1;
-const uint32_t kVirtualPageNumberMask = ~kAddressOffsetMask;
 
 struct Opcode
 {
@@ -291,6 +273,14 @@ union PageTableEntry
 	} m_Fields;
 };
 
+// Used for tracing
+// TODO: For playback functionality CSRs are also needed.
+struct CPUState
+{
+	word_t m_PC;
+	word_t m_IRegs[31]; // Don't save x0
+};
+
 class ICPU
 {
 public:
@@ -298,14 +288,18 @@ public:
 	{}
 
 	virtual void reset(word_t pc) = 0;
-	virtual void tick(MemoryMap* mm) = 0;
+	virtual bool tick(MemoryMap* mm) = 0;
 
+	virtual PrivLevel::Enum getPrivilegeLevel() = 0;
 	virtual word_t getPC() = 0;
 	virtual word_t getRegister(uint32_t reg) = 0;
 	virtual word_t getCSR(uint32_t csr) = 0;
 	virtual dword_t getCSR64(uint32_t csrLow) = 0;
 	virtual word_t getOutputPin(OutputPin::Enum pin) = 0;
 	virtual bool getMemWord(MemoryMap* mm, word_t addr, word_t& data) = 0;
+
+	// Shortcut for reading PC + all regs
+	virtual void readState(CPUState* state) = 0;
 };
 
 //////////////////////////////////////////////////////////////////////////

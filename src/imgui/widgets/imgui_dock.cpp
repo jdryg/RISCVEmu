@@ -209,11 +209,17 @@ struct DockContext
 	
 	~DockContext() {}
 	
-	Dock& getDock(const char* label, bool opened)
+	Dock* getDock(const char* label, bool opened, bool createNew)
 	{
 		ImU32 id = ImHash(label, 0);
 		for (int i = 0; i < m_docks.size(); ++i) {
-			if (m_docks[i]->id == id) return *m_docks[i];
+			if (m_docks[i]->id == id) {
+				return m_docks[i];
+			}
+		}
+
+		if (!createNew) {
+			return NULL;
 		}
 
 		Dock* new_dock = (Dock*)MemAlloc(sizeof(Dock));
@@ -231,7 +237,7 @@ struct DockContext
 		new_dock->last_frame = 0;
 		new_dock->invalid_frames = 0;
 		new_dock->location[0] = 0;
-		return *new_dock;
+		return new_dock;
 	}
 	
 	void putInBackground()
@@ -852,63 +858,63 @@ struct DockContext
 
 	bool begin(const char* label, bool* opened, ImGuiWindowFlags extra_flags)
 	{
-		Dock& dock = getDock(label, !opened || *opened);
-		if (!dock.opened && (!opened || *opened)) {
-			tryDockToStoredLocation(dock);
+		Dock* dock = getDock(label, !opened || *opened, true);
+		if (!dock->opened && (!opened || *opened)) {
+			tryDockToStoredLocation(*dock);
 		}
 
-		dock.last_frame = ImGui::GetFrameCount();
-		if (strcmp(dock.label, label) != 0) {
-			MemFree(dock.label);
-			dock.label = ImStrdup(label);
+		dock->last_frame = ImGui::GetFrameCount();
+		if (strcmp(dock->label, label) != 0) {
+			MemFree(dock->label);
+			dock->label = ImStrdup(label);
 		}
 
 		m_end_action = EndAction_None;
 		
-		if (dock.first && opened) {
-			*opened = dock.opened;
+		if (dock->first && opened) {
+			*opened = dock->opened;
 		}
 
-		dock.first = false;
+		dock->first = false;
 		if (opened && !*opened) {
-			if (dock.status != Status_Float) {
-				fillLocation(dock);
-				doUndock(dock);
-				dock.status = Status_Float;
+			if (dock->status != Status_Float) {
+				fillLocation(*dock);
+				doUndock(*dock);
+				dock->status = Status_Float;
 			}
-			dock.opened = false;
+			dock->opened = false;
 			return false;
 		}
-		dock.opened = true;
+		dock->opened = true;
 
 		m_end_action = EndAction_Panel;
 		beginPanel();
 
-		m_current = &dock;
-		if (dock.status == Status_Dragged) {
-			handleDrag(dock);
+		m_current = dock;
+		if (dock->status == Status_Dragged) {
+			handleDrag(*dock);
 		}
 
-		bool is_float = dock.status == Status_Float;
+		bool is_float = dock->status == Status_Float;
 		if (is_float) {
-			SetNextWindowPos(dock.pos);
-			SetNextWindowSize(dock.size);
-			bool ret = Begin(label, opened, dock.size, -1.0f, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | extra_flags);
+			SetNextWindowPos(dock->pos);
+			SetNextWindowSize(dock->size);
+			bool ret = Begin(label, opened, dock->size, -1.0f, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_ShowBorders | extra_flags);
 			m_end_action = EndAction_End;
-			dock.pos = GetWindowPos();
-			dock.size = GetWindowSize();
+			dock->pos = GetWindowPos();
+			dock->size = GetWindowSize();
 
 			ImGuiContext& g = *GImGui;
 
 			if (g.ActiveId == GetCurrentWindow()->MoveId && g.IO.MouseDown[0]) {
-				m_drag_offset = GetMousePos() - dock.pos;
-				doUndock(dock);
-				dock.status = Status_Dragged;
+				m_drag_offset = GetMousePos() - dock->pos;
+				doUndock(*dock);
+				dock->status = Status_Dragged;
 			}
 			return ret;
 		}
 
-		if (!dock.active && dock.status != Status_Dragged) {
+		if (!dock->active && dock->status != Status_Dragged) {
 			return false;
 		}
 
@@ -917,13 +923,13 @@ struct DockContext
 		PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 		PushStyleColor(ImGuiCol_BorderShadow, ImVec4(0, 0, 0, 0));
 		float tabbar_height = GetTextLineHeightWithSpacing();
-		if (tabbar(dock.getFirstTab(), opened != nullptr)) {
-			fillLocation(dock);
+		if (tabbar(dock->getFirstTab(), opened != nullptr)) {
+			fillLocation(*dock);
 			*opened = false;
 		}
 
-		ImVec2 pos = dock.pos;
-		ImVec2 size = dock.size;
+		ImVec2 pos = dock->pos;
+		ImVec2 size = dock->size;
 		pos.y += tabbar_height + GetStyle().WindowPadding.y;
 		size.y -= tabbar_height + GetStyle().WindowPadding.y;
 
@@ -1031,7 +1037,7 @@ struct DockContext
 	{
 		// Free all existing docks (should be 0);
 		const unsigned int n = m_docks.size();
-		for (int i = 0; i < n; ++i) {
+		for (unsigned int i = 0; i < n; ++i) {
 			m_docks[i]->~Dock();
 			MemFree(m_docks[i]);
 		}
@@ -1055,7 +1061,7 @@ struct DockContext
 
 		// Parse the file...
 		int read = 0;
-		size_t num = json_num(fileBuffer, fileSize);
+		int num = json_num(fileBuffer, fileSize);
 		json_token* toks = (json_token*)calloc(num, sizeof(json_token));
 		json_load(toks, num, &read, fileBuffer, fileSize);
 
@@ -1188,6 +1194,16 @@ void RootDock(const ImVec2& pos, const ImVec2& size)
 void SetDockActive()
 {
 	g_dock.setDockActive();
+}
+
+void SetDockActive(const char* label)
+{
+	DockContext::Dock* dock = g_dock.getDock(label, true, false);
+	if (!dock) {
+		return;
+	}
+
+	dock->setActive();
 }
 
 bool BeginDock(const char* label, bool* opened, ImGuiWindowFlags extra_flags)

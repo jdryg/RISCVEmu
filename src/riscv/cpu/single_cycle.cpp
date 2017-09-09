@@ -7,41 +7,6 @@ namespace riscv
 {
 namespace cpu
 {
-// Volume II: RISC-V Privileged Architectures V1.10
-#define MSTATUS_MASK_SD     0x80000000 // If both XS and FS are hardwired to zero, then SD is also always zero.
-#define MSTATUS_MASK_TSR    0x00400000 // TSR (Trap SRET) is hardwired to 0 when S-mode is not supported
-#define MSTATUS_MASK_TW     0x00200000 // TW (Timeout Wait) is hardwired to 0 when S-mode is not supported
-#define MSTATUS_MASK_TVM    0x00100000 // TVM (Trap Virtual Memory) is hardwired to 0 when S-mode is not supported
-#define MSTATUS_MASK_MXR    0x00080000 // MXR (Make eXecutable Readable) is hardwired to 0 when S-mode is not supported
-#define MSTATUS_MASK_SUM    0x00040000 // SUM (permit Supervisor User Memory access) is hardwired to 0 when S-mode is not supported
-#define MSTATUS_MASK_MPRV   0x00020000 // MPRV (Modify PRiVilege) See section 3.1.9
-#define MSTATUS_MASK_XS     0x00018000 // In systems without additional user extensions requiring new state, the XS field is hardwired to zero
-#define MSTATUS_MASK_FS     0x00006000 // In systems that do not implement S-mode and do not have a floating-point unit, the FS field is hardwired to zero
-#define MSTATUS_MASK_MPP    0x00001800
-#define MSTATUS_MASK_SPP    0x00000100
-#define MSTATUS_MASK_MPIE   0x00000080
-#define MSTATUS_MASK_SPIE   0x00000020
-#define MSTATUS_MASK_UPIE   0x00000010
-#define MSTATUS_MASK_MIE    0x00000008
-#define MSTATUS_MASK_SIE    0x00000002
-#define MSTATUS_MASK_UIE    0x00000001
-
-#define MCOUNTEREN_CY       0x00000001
-#define MCOUNTEREN_TM       0x00000002
-#define MCOUNTEREN_IR       0x00000004
-
-#define PRIV_LEVEL_TO_MSTATUS_MPP_SHIFT 11
-
-#define SATP_MODE_MASK        0x80000000
-#define SATP_PTPPN_MASK       0x003FFFFF // Page Table Physical Page Number
-
-#define PTE_PROTECTION_MASK   0x0000000E
-#define PTE_PROTECTION_SHIFT  1
-
-#define PROTECTION_READ       0x00000001
-#define PROTECTION_WRITE      0x00000002
-#define PROTECTION_EXECUTE    0x00000004
-
 SingleCycle::SingleCycle()
 {
 }
@@ -65,7 +30,7 @@ void SingleCycle::reset(word_t pc)
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
 }
 
-void SingleCycle::tick(MemoryMap* mm)
+bool SingleCycle::tick(MemoryMap* mm)
 {
 	// Clear the breakpoint output
 	m_NextState.m_Breakpoint = false;
@@ -384,6 +349,13 @@ void SingleCycle::tick(MemoryMap* mm)
 
 next_tick:
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
+
+	return true;
+}
+
+PrivLevel::Enum SingleCycle::getPrivilegeLevel()
+{
+	return m_State.m_PrivLevel;
 }
 
 word_t SingleCycle::getPC()
@@ -433,9 +405,9 @@ bool SingleCycle::getMemWord(MemoryMap* mm, word_t virtualAddress, word_t& data)
 		return true;
 	}
 
-	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	const uint32_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
 
-	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << kPageShift;
+	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
 	int level = 1;
 	uint32_t vpnLevel[2] = { virtualPageNumber & 1023, (virtualPageNumber >> 10) & 1023 };
 	while (level >= 0) {
@@ -455,16 +427,22 @@ bool SingleCycle::getMemWord(MemoryMap* mm, word_t virtualAddress, word_t& data)
 			}
 				
 			--level;
-			pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << kPageShift;
+			pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
 			continue;
 		}
 
-		const uint32_t offset = virtualAddress & kAddressOffsetMask;
-		const TLB::physical_addr_t physicalAddress = (pte.m_Fields.m_PhysicalPageNumber << kPageShift) | offset;
+		const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
+		const TLB::physical_addr_t physicalAddress = (pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT) | offset;
 		return mmRead(mm, physicalAddress, 0xFFFFFFFF, data);
 	}
 
 	return false;
+}
+
+void SingleCycle::readState(CPUState* state)
+{
+	state->m_PC = m_State.m_PC;
+	bx::memCopy(&state->m_IRegs[0], &m_State.m_IRegs[1], sizeof(word_t) * 31);
 }
 
 void SingleCycle::writeCSR(uint32_t csr, word_t val)
@@ -521,7 +499,7 @@ void SingleCycle::pageTableWalk(MemoryMap* mm, TLB* tlb, uint32_t satp, uint32_t
 {
 	// Algorithm from section 4.3.2 (RISC-V Privileged Architectures v1.10)
 	// 1. Let pageTablePPN be satp.ppn * PAGESIZE, and let level = LEVELS - 1. (For Sv32, PAGESIZE = 212 and LEVELS = 2.)
-	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << kPageShift;
+	uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
 	uint32_t level = 1;
 	uint32_t vpnLevel[2] = { vpn & 1023, (vpn >> 10) & 1023 };
 	while (true) {
@@ -549,7 +527,7 @@ void SingleCycle::pageTableWalk(MemoryMap* mm, TLB* tlb, uint32_t satp, uint32_t
 					}
 
 					--level;
-					pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << kPageShift;
+					pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
 					continue;
 				}
 
@@ -587,14 +565,14 @@ bool SingleCycle::memRead(MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint
 	}
 
 	// Memory read with a TLB
-	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	const uint32_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
 	TLBLookupResult tlbResult = tlbLookup(tlb, virtualPageNumber);
 	if (tlbResult.m_Hit) {
 		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
 		const uint32_t requiredProtectionFlags = PROTECTION_READ | (isInstruction ? PROTECTION_EXECUTE : 0);
 		if ((pageProtectionFlags & requiredProtectionFlags) == requiredProtectionFlags) {
-			const uint32_t offset = virtualAddress & kAddressOffsetMask;
-			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
+			const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
+			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
 			if (mmRead(mm, physicalAddress, byteMask, data)) {
 				return true;
 			}
@@ -638,14 +616,14 @@ bool SingleCycle::memWrite(MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uin
 	}
 
 	// Memory write with a TLB
-	const uint32_t virtualPageNumber = (virtualAddress & kVirtualPageNumberMask) >> kPageShift;
+	const uint32_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
 	TLBLookupResult tlbResult = tlbLookup(tlb, virtualPageNumber);
 	if (tlbResult.m_Hit) {
 		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
 		const uint32_t requiredProtectionFlags = PROTECTION_WRITE;
 		if ((pageProtectionFlags & requiredProtectionFlags) == requiredProtectionFlags) {
-			const uint32_t offset = virtualAddress & kAddressOffsetMask;
-			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << kPageShift) | offset;
+			const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
+			const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
 			if (mmWrite(mm, physicalAddress, byteMask, data)) {
 				return true;
 			}

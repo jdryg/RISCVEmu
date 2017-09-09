@@ -5,38 +5,22 @@
 
 namespace riscv
 {
-struct ALUOperation
+struct ALUFunction
 {
 	enum Enum : uint32_t
 	{
-		Add = 0,
-		Sub = 1,
-		SLL = 2,
-		SRL = 3,
-		SRA = 4,
-		Xor = 5,
+		Add_Sub = 0,
+		SLL = 1,
+		SLT = 2,
+		SLTU = 3,
+		Xor = 4,
+		SRL_SRA = 5,
 		Or = 6,
-		And = 7,
-		SLT = 8,
-		SLTU = 9,
-		SEQ = 10,
+		And = 7
 	};
 };
 
-struct ALUInput
-{
-	uint32_t m_A;
-	uint32_t m_B;
-	ALUOperation::Enum m_Op;
-};
-
-struct ALUOutput
-{
-	uint32_t m_Res;
-};
-
-void alu(const ALUInput& input, ALUOutput& output);
-uint32_t alu(uint32_t a, uint32_t b, ALUOperation::Enum op);
+uint32_t alu(uint32_t a, uint32_t b, ALUFunction::Enum func, bool secondaryFunc);
 }
 
 #endif

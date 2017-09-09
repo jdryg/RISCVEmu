@@ -15,14 +15,16 @@ public:
 	virtual ~SingleCycle();
 
 	virtual void reset(word_t pc);
-	virtual void tick(MemoryMap* mm);
+	virtual bool tick(MemoryMap* mm);
 
+	virtual PrivLevel::Enum getPrivilegeLevel();
 	virtual word_t getPC();
 	virtual word_t getRegister(uint32_t reg);
 	virtual word_t getCSR(uint32_t csr);
 	virtual dword_t getCSR64(uint32_t csrLow);
 	virtual word_t getOutputPin(OutputPin::Enum pin);
 	virtual bool getMemWord(MemoryMap* mm, word_t addr, word_t& data);
+	virtual void readState(CPUState* state);
 
 private:
 	struct State
