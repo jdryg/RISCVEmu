@@ -110,6 +110,17 @@ private:
 		};
 	};
 
+	struct MMUState
+	{
+		enum Enum : uint32_t
+		{
+			Idle,
+			WaitForMemory,
+			PageTableWalk_L1,
+			PageTableWalk_L0
+		};
+	};
+
 	union MicroOp
 	{
 		dword_t m_Word;
@@ -179,6 +190,18 @@ private:
 		uint32_t m_ComparatorResult; // 1 bit
 		MicroOp m_MicroOp; // Current micro operation
 		ExceptionState m_Exception;
+
+		// Memory Management Unit
+		MMUState::Enum m_MMUState;
+		word_t m_MemReq_addr;
+		word_t m_MemReq_data;
+		uint32_t m_MemReq_size; // 0 = 1 byte, 1 = 2 bytes, 2 = 4 bytes
+		bool m_MemReq_valid;
+		bool m_MemReq_rw;
+
+		word_t m_MemRes_data;
+		bool m_MemRes_valid; // Flag indicating whether mmRead/mmWrite has succeeded or not.
+		bool m_MemRes_ready; // Flag indicating whether mmRead/mmWrite has finished.
 	};
 
 	State m_State;
@@ -186,15 +209,16 @@ private:
 	TLB m_ITLB;
 	TLB m_DTLB;
 
-	void stageInstructionFetch(MemoryMap* mm);
+	void stageInstructionFetch();
 	void stageDecode();
 	void stageExecute();
-	void stageMemory(MemoryMap* mm);
+	void stageMemory();
 	void stageWriteBack();
 
-	bool pageTableWalk(MemoryMap* mm, TLB* tlb, uint32_t satp, uint32_t vpn, bool read, bool write, bool execute, bool isStore);
-	bool memRead(MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t byteMask, uint32_t& data, bool isInstruction);
-	bool memWrite(MemoryMap* mm, TLB* tlb, uint32_t virtualAddress, uint32_t byteMask, uint32_t data);
+	void memRequest(word_t addr, bool we, uint32_t sz, uint32_t data);
+	bool instrMemRead(word_t virtualAddress, word_t& data);
+	bool dataMemRead(word_t virtualAddress, uint32_t sz, uint32_t& data);
+	bool dataMemWrite(word_t virtualAddress, uint32_t sz, uint32_t data);
 
 	void raiseException(Exception::Enum cause, word_t val);
 	void clearException();
@@ -301,6 +325,16 @@ inline void MultiCycle::csr64Inc(CSR::Enum csrLow, uint64_t n)
 
 	m_NextState.m_CSR[csrLow] = nl;
 	m_NextState.m_CSR[csrLow | 0x80] = hi;
+}
+
+// Memory
+inline void MultiCycle::memRequest(word_t addr, bool we, uint32_t sz, uint32_t data)
+{
+	m_NextState.m_MemReq_valid = true;
+	m_NextState.m_MemReq_addr = addr;
+	m_NextState.m_MemReq_rw = we;
+	m_NextState.m_MemReq_size = sz;
+	m_NextState.m_MemReq_data = data;
 }
 }
 }

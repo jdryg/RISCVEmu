@@ -73,6 +73,7 @@ void cacheTick(Cache* cache, uint32_t randomSource, const CacheCPUReq& in_cpuReq
 	CacheState::Enum newState = state;
 
 	const uint32_t wordsPerLine = cache->m_LineSize >> 2;
+	uint32_t* cacheData32 = (uint32_t*)cache->m_Data;
 
 	// Combinational part
 	out_cpuRes.m_Data = 0;
@@ -154,7 +155,7 @@ void cacheTick(Cache* cache, uint32_t randomSource, const CacheCPUReq& in_cpuReq
 		break;
 	case CacheState::Allocate:
 		if (in_memRes.m_Ready) {
-			setData[cache->m_TargetBlockID * wordsPerLine + cache->m_TargetBlockWordID] = in_memRes.m_Data;
+			cacheData32[cache->m_TargetBlockID * wordsPerLine + cache->m_TargetBlockWordID] = in_memRes.m_Data;
 			++cache->m_TargetBlockWordID;
 			if (cache->m_TargetBlockWordID >= wordsPerLine) {
 				// We are done filling in the cache block. Switch to CompareTag again.
@@ -177,7 +178,7 @@ void cacheTick(Cache* cache, uint32_t randomSource, const CacheCPUReq& in_cpuReq
 				out_memReq.m_Valid = true;
 				out_memReq.m_RW = true;
 				out_memReq.m_Addr = ((setTags[cache->m_TargetBlockID] & TAG_VALUE_MASK) << cache->m_TagShift) | (setIndex << cache->m_IndexShift) | (cache->m_TargetBlockWordID << 2);
-				out_memReq.m_Data = setData[cache->m_TargetBlockID * wordsPerLine + cache->m_TargetBlockWordID];
+				out_memReq.m_Data = cacheData32[cache->m_TargetBlockID * wordsPerLine + cache->m_TargetBlockWordID];
 			}
 		}
 		break;
