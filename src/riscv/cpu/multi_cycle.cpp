@@ -587,8 +587,6 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 			// No address translation required.
 			memRequest(virtualAddress, false, MEMOP_SIZE_4, ~0u);
 			m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-			return false;
 		} else {
 			// Address translation is required.
 			RISCV_CHECK(m_State.m_PrivLevel == PrivLevel::User, "Invalid privilege level");
@@ -610,8 +608,6 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 
 				memRequest(physicalAddress, false, MEMOP_SIZE_4, ~0u);
 				m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-				return false;
 			} else {
 				// TLB miss. Page table walk
 				const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
@@ -620,8 +616,6 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 
 				memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
 				m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
-
-				return false;
 			}
 		}
 	} else if (mmuState == MMUState::WaitForMemory) {
