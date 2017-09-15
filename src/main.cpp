@@ -1244,27 +1244,27 @@ int main()
 				uint32_t ns = app.m_NumCPUSteps;
 				bool breakpointReached = false;
 				while (ns-- > 0) {
-					// Transmit any data stored in UART's TX buffer to the console.
-					uint8_t consoleData;
-					if (riscv::device::uartTransmit(app.m_ConsoleUART, consoleData)) {
-						consoleWrite(app.m_Console, consoleData);
-					}
-
-					// Transmit any data from stdin to the UART.
-					if (app.m_StdInBuffer[0] != '\0') {
-						if (riscv::device::uartReceive(app.m_ConsoleUART, app.m_StdInBuffer[0])) {
-							// 1 character consumed by the CPU.
-							const uint32_t stdInBufLen = (uint32_t)bx::strLen(app.m_StdInBuffer);
-							bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], stdInBufLen);
-						}
-					}
-
 					if (app.m_EnableTracing) {
 						app.m_CPU->readState(tracePush(&app));
 					}
-					
+
 					// Tick the CPU until a new instruction is about to be fetched.
-					while (!app.m_CPU->tick(app.m_MemoryMap));
+					do {
+						// Transmit any data stored in UART's TX buffer to the console.
+						uint8_t consoleData;
+						if (riscv::device::uartTransmit(app.m_ConsoleUART, consoleData)) {
+							consoleWrite(app.m_Console, consoleData);
+						}
+
+						// Transmit any data from stdin to the UART.
+						if (app.m_StdInBuffer[0] != '\0') {
+							if (riscv::device::uartReceive(app.m_ConsoleUART, app.m_StdInBuffer[0])) {
+								// 1 character consumed by the CPU.
+								const uint32_t stdInBufLen = (uint32_t)bx::strLen(app.m_StdInBuffer);
+								bx::memCopy(&app.m_StdInBuffer[0], &app.m_StdInBuffer[1], stdInBufLen);
+							}
+						}
+					} while (!app.m_CPU->tick(app.m_MemoryMap));
 					
 					if ((app.m_Config.m_BreakOnEBREAK && app.m_CPU->getOutputPin(riscv::OutputPin::Breakpoint)) || 
 						dbgHasCodeBreakpoint(app.m_Dbg, app.m_CPU->getPC())) 

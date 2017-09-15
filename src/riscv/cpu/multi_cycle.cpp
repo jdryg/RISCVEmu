@@ -36,7 +36,7 @@ void MultiCycle::reset(word_t pc)
 	m_NextState.m_CSR[CSR::mcounteren] = MCOUNTEREN_CY | MCOUNTEREN_IR;
 	m_NextState.m_Exception.m_Enabled = 0;
 	m_NextState.m_Breakpoint = false;
-	m_NextState.m_MemReq_valid = false;
+	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 0;
 	m_NextState.m_MMUState = MMUState::Idle;
 
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
@@ -44,23 +44,8 @@ void MultiCycle::reset(word_t pc)
 
 bool MultiCycle::tick(MemoryMap* mm)
 {
-	// Memory submodule (outside the CPU)
-	m_NextState.m_MemRes_ready = false;
-
-	if (m_State.m_MemReq_valid) {
-		const uint32_t sz = m_State.m_MemReq_size;
-		const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << sz) << 3));
-
-		if (m_State.m_MemReq_rw) {
-			m_NextState.m_MemRes_valid = mmWrite(mm, m_State.m_MemReq_addr, byteMask, m_State.m_MemReq_data);
-		} else {
-			m_NextState.m_MemRes_valid = mmRead(mm, m_State.m_MemReq_addr, byteMask, m_NextState.m_MemRes_data);
-		}
-
-		m_NextState.m_MemRes_ready = true;
-	}
-
-	m_NextState.m_MemReq_valid = false;
+	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_MemRes = mmRequest(mm, m_State.m_MemReq);
 
 	switch (m_State.m_Stage) {
 	case Stage::InstructionFetch:
@@ -619,11 +604,11 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 			}
 		}
 	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::InstructionAccessFault, virtualAddress);
 			} else {
-				data = m_State.m_MemRes_data;
+				data = m_State.m_MemRes.m_Data;
 			}
 
 			m_NextState.m_MMUState = MMUState::Idle;
@@ -631,13 +616,13 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 			return true;
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);
@@ -658,13 +643,13 @@ bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
 			}
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);
@@ -698,8 +683,6 @@ bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
 			// No address translation required.
 			memRequest(virtualAddress, false, sz, ~0u);
 			m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-			return false;
 		} else {
 			// Address translation is required.
 			RISCV_CHECK(m_State.m_PrivLevel == PrivLevel::User, "Invalid privilege level");
@@ -721,8 +704,6 @@ bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
 
 				memRequest(physicalAddress, false, sz, ~0u);
 				m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-				return false;
 			} else {
 				// TLB miss. Page table walk
 				const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
@@ -731,16 +712,14 @@ bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
 
 				memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
 				m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
-
-				return false;
 			}
 		}
 	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 			} else {
-				data = m_State.m_MemRes_data;
+				data = m_State.m_MemRes.m_Data;
 			}
 
 			m_NextState.m_MMUState = MMUState::Idle;
@@ -748,13 +727,13 @@ bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
 			return true;
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);
@@ -775,13 +754,13 @@ bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
 			}
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);
@@ -853,8 +832,8 @@ bool MultiCycle::dataMemWrite(word_t virtualAddress, uint32_t sz, word_t data)
 			}
 		}
 	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::StoreAccessFault, virtualAddress);
 			}
 
@@ -863,13 +842,13 @@ bool MultiCycle::dataMemWrite(word_t virtualAddress, uint32_t sz, word_t data)
 			return true;
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::StoreAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);
@@ -890,13 +869,13 @@ bool MultiCycle::dataMemWrite(word_t virtualAddress, uint32_t sz, word_t data)
 			}
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes_ready) {
-			if (!m_State.m_MemRes_valid) {
+		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
 				raiseException(Exception::LoadAccessFault, virtualAddress);
 				return true;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes_data;
+				pte.m_Word = m_State.m_MemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
 					raiseException(Exception::LoadPageFault, virtualAddress);

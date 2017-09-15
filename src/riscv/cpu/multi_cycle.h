@@ -4,6 +4,7 @@
 #include "../icpu.h"
 #include "../tlb.h"
 #include "../alu.h"
+#include "../memory_map.h" // MemoryRequest, MemoryResponse
 #include "../../debug.h"
 
 namespace riscv
@@ -193,15 +194,8 @@ private:
 
 		// Memory Management Unit
 		MMUState::Enum m_MMUState;
-		word_t m_MemReq_addr;
-		word_t m_MemReq_data;
-		uint32_t m_MemReq_size; // 0 = 1 byte, 1 = 2 bytes, 2 = 4 bytes
-		bool m_MemReq_valid;
-		bool m_MemReq_rw;
-
-		word_t m_MemRes_data;
-		bool m_MemRes_valid; // Flag indicating whether mmRead/mmWrite has succeeded or not.
-		bool m_MemRes_ready; // Flag indicating whether mmRead/mmWrite has finished.
+		MemoryRequest m_MemReq;
+		MemoryResponse m_MemRes;
 	};
 
 	State m_State;
@@ -330,11 +324,11 @@ inline void MultiCycle::csr64Inc(CSR::Enum csrLow, uint64_t n)
 // Memory
 inline void MultiCycle::memRequest(word_t addr, bool we, uint32_t sz, uint32_t data)
 {
-	m_NextState.m_MemReq_valid = true;
-	m_NextState.m_MemReq_addr = addr;
-	m_NextState.m_MemReq_rw = we;
-	m_NextState.m_MemReq_size = sz;
-	m_NextState.m_MemReq_data = data;
+	m_NextState.m_MemReq.m_Addr = addr;
+	m_NextState.m_MemReq.m_Data = data;
+	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 1;
+	m_NextState.m_MemReq.m_Control.m_Fields.m_WriteEnable = we ? 1 : 0;
+	m_NextState.m_MemReq.m_Control.m_Fields.m_Size = sz;
 }
 }
 }

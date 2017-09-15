@@ -12,6 +12,8 @@ namespace riscv
 
 #define DEV_FLAGS_MEMORY (DEV_FLAGS_RAM | DEV_FLAGS_ROM)
 
+const MemoryResponse kInvalidMemResponse = { ~0u, 0 };
+
 struct DeviceDesc
 {
 	Device* m_Dev;
@@ -111,6 +113,28 @@ bool mmGet(MemoryMap* mm, uint32_t addr, uint32_t byteMask, uint32_t& val)
 	}
 
 	return false;
+}
+
+MemoryResponse mmRequest(MemoryMap* mm, const MemoryRequest& req)
+{
+	RISCV_CHECK(req.m_Control.m_Fields.m_Size <= 2, "Invalid memory request size");
+	if (!req.m_Control.m_Fields.m_Valid) {
+		return kInvalidMemResponse;
+	}
+
+	MemoryResponse res;
+	res.m_Control.m_Fields.m_Ready = 1;
+
+	const uint32_t byteMask = 0xFFFFFFFF >> (32 - ((1 << req.m_Control.m_Fields.m_Size) << 3));
+	if (req.m_Control.m_Fields.m_WriteEnable) {
+		// Write
+		res.m_Control.m_Fields.m_Valid = mmWrite(mm, req.m_Addr, byteMask, req.m_Data) ? 1 : 0;
+	} else {
+		// Read
+		res.m_Control.m_Fields.m_Valid = mmRead(mm, req.m_Addr, byteMask, res.m_Data) ? 1 : 0;
+	}
+
+	return res;
 }
 
 namespace device
