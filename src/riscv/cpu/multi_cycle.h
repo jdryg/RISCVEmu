@@ -34,11 +34,13 @@ private:
 	{
 		enum Enum : uint32_t
 		{
-			InstructionFetch = 0,
-			Decode = 1,
-			Execute = 2,
-			Memory = 3,
-			WriteBack = 4
+			InstructionFetch1 = 0,
+			InstructionFetch2 = 1,
+			Decode = 2,
+			Execute = 3,
+			Memory1 = 4,
+			Memory2 = 5,
+			WriteBack = 6
 		};
 	};
 
@@ -165,6 +167,24 @@ private:
 		} m_Control;
 	};
 
+	struct MMUException
+	{
+		enum Enum : uint8_t
+		{
+			None,
+			AccessFault,
+			PageFault
+		};
+	};
+
+	struct MMULookupResult
+	{
+		word_t m_PhysicalAddress;
+		MMUException::Enum m_Exception;
+		bool m_Ready;
+		bool m_Valid;
+	};
+
 	struct ExceptionState
 	{
 		word_t m_Val;
@@ -194,8 +214,16 @@ private:
 
 		// Memory Management Unit
 		MMUState::Enum m_MMUState;
-		MemoryRequest m_MemReq;
-		MemoryResponse m_MemRes;
+		MemoryRequest m_MMUMemReq;
+		MemoryResponse m_MMUMemRes;
+
+		// Instruction Memory
+		MemoryRequest m_IMemReq;
+		MemoryResponse m_IMemRes;
+
+		// Data Memory
+		MemoryRequest m_DMemReq;
+		MemoryResponse m_DMemRes;
 	};
 
 	State m_State;
@@ -203,16 +231,15 @@ private:
 	TLB m_ITLB;
 	TLB m_DTLB;
 
-	void stageInstructionFetch();
+	void stageInstructionFetch1();
+	void stageInstructionFetch2();
 	void stageDecode();
 	void stageExecute();
-	void stageMemory();
+	void stageMemory1();
+	void stageMemory2();
 	void stageWriteBack();
 
-	void memRequest(word_t addr, bool we, uint32_t sz, uint32_t data);
-	bool instrMemRead(word_t virtualAddress, word_t& data);
-	bool dataMemRead(word_t virtualAddress, uint32_t sz, uint32_t& data);
-	bool dataMemWrite(word_t virtualAddress, uint32_t sz, uint32_t data);
+	void mmuTranslateAddress(MMULookupResult* res, TLB* tlb, word_t virtualAddress, uint32_t protectionFlags);
 
 	void raiseException(Exception::Enum cause, word_t val);
 	void clearException();
@@ -319,16 +346,6 @@ inline void MultiCycle::csr64Inc(CSR::Enum csrLow, uint64_t n)
 
 	m_NextState.m_CSR[csrLow] = nl;
 	m_NextState.m_CSR[csrLow | 0x80] = hi;
-}
-
-// Memory
-inline void MultiCycle::memRequest(word_t addr, bool we, uint32_t sz, uint32_t data)
-{
-	m_NextState.m_MemReq.m_Addr = addr;
-	m_NextState.m_MemReq.m_Data = data;
-	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 1;
-	m_NextState.m_MemReq.m_Control.m_Fields.m_WriteEnable = we ? 1 : 0;
-	m_NextState.m_MemReq.m_Control.m_Fields.m_Size = sz;
 }
 }
 }

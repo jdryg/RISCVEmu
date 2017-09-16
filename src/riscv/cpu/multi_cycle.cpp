@@ -26,7 +26,7 @@ void MultiCycle::reset(word_t pc)
 	tlbInit(&m_ITLB, 16);
 	tlbInit(&m_DTLB, 16);
 
-	m_NextState.m_Stage = Stage::InstructionFetch;
+	m_NextState.m_Stage = Stage::InstructionFetch1;
 	m_NextState.m_PrivLevel = PrivLevel::Machine;
 	m_NextState.m_IRegs[0] = 0;
 	m_NextState.m_PC = pc;
@@ -36,7 +36,9 @@ void MultiCycle::reset(word_t pc)
 	m_NextState.m_CSR[CSR::mcounteren] = MCOUNTEREN_CY | MCOUNTEREN_IR;
 	m_NextState.m_Exception.m_Enabled = 0;
 	m_NextState.m_Breakpoint = false;
-	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_IMemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_DMemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 0;
 	m_NextState.m_MMUState = MMUState::Idle;
 
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
@@ -44,12 +46,37 @@ void MultiCycle::reset(word_t pc)
 
 bool MultiCycle::tick(MemoryMap* mm)
 {
-	m_NextState.m_MemReq.m_Control.m_Fields.m_Valid = 0;
-	m_NextState.m_MemRes = mmRequest(mm, m_State.m_MemReq);
+	// Memory request. From highest priority to lowest priority
+	// 1) MMU (page table walk)
+	// 2) Data Memory (MemoryX stages)
+	// 3) Instruction Memory (InstructionFetchX stages)
+	if (m_State.m_MMUMemReq.m_Control.m_Fields.m_Valid) {
+		m_NextState.m_MMUMemRes = mmRequest(mm, m_State.m_MMUMemReq);
+
+		m_NextState.m_DMemRes.m_Control.m_Fields.m_Ready = 0;
+		m_NextState.m_IMemRes.m_Control.m_Fields.m_Ready = 0;
+	} else if (m_State.m_DMemReq.m_Control.m_Fields.m_Valid) {
+		m_NextState.m_DMemRes = mmRequest(mm, m_State.m_DMemReq);
+
+		m_NextState.m_MMUMemRes.m_Control.m_Fields.m_Ready = 0;
+		m_NextState.m_IMemRes.m_Control.m_Fields.m_Ready = 0;
+	} else {
+		m_NextState.m_IMemRes = mmRequest(mm, m_State.m_IMemReq);
+
+		m_NextState.m_MMUMemRes.m_Control.m_Fields.m_Ready = 0;
+		m_NextState.m_DMemRes.m_Control.m_Fields.m_Ready = 0;
+	}
+
+	m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_DMemReq.m_Control.m_Fields.m_Valid = 0;
+	m_NextState.m_IMemReq.m_Control.m_Fields.m_Valid = 0;
 
 	switch (m_State.m_Stage) {
-	case Stage::InstructionFetch:
-		stageInstructionFetch();
+	case Stage::InstructionFetch1:
+		stageInstructionFetch1();
+		break;
+	case Stage::InstructionFetch2:
+		stageInstructionFetch2();
 		break;
 	case Stage::Decode:
 		stageDecode();
@@ -57,8 +84,11 @@ bool MultiCycle::tick(MemoryMap* mm)
 	case Stage::Execute:
 		stageExecute();
 		break;
-	case Stage::Memory:
-		stageMemory();
+	case Stage::Memory1:
+		stageMemory1();
+		break;
+	case Stage::Memory2:
+		stageMemory2();
 		break;
 	case Stage::WriteBack:
 		stageWriteBack();
@@ -69,7 +99,7 @@ bool MultiCycle::tick(MemoryMap* mm)
 
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
 
-	return m_State.m_Stage == Stage::InstructionFetch && m_State.m_MMUState == MMUState::Idle;
+	return m_State.m_Stage == Stage::InstructionFetch1 && m_State.m_MMUState == MMUState::Idle;
 }
 
 PrivLevel::Enum MultiCycle::getPrivilegeLevel()
@@ -163,13 +193,45 @@ void MultiCycle::readState(CPUState* state)
 //////////////////////////////////////////////////////////////////////////
 // Stages
 //
-void MultiCycle::stageInstructionFetch()
+void MultiCycle::stageInstructionFetch1()
 {
-	if (!instrMemRead(m_State.m_PC, m_NextState.m_InstrReg)) {
-		return;
-	}
+	MMULookupResult mmuLookup;
+	mmuTranslateAddress(&mmuLookup, &m_ITLB, m_State.m_PC, PROTECTION_READ | PROTECTION_EXECUTE);
+	if (mmuLookup.m_Ready) {
+		if (!mmuLookup.m_Valid) {
+			switch (mmuLookup.m_Exception) {
+			case MMUException::AccessFault:
+				raiseException(Exception::InstructionAccessFault, m_State.m_PC);
+				break;
+			case MMUException::PageFault:
+				raiseException(Exception::InstructionPageFault, m_State.m_PC);
+				break;
+			default:
+				RISCV_CHECK(false, "MMU result is invalid but no exception has been set!");
+				break;
+			}
+		} else {
+			m_NextState.m_IMemReq.m_Addr = mmuLookup.m_PhysicalAddress;
+			m_NextState.m_IMemReq.m_Control.m_Fields.m_Size = MEMOP_SIZE_4;
+			m_NextState.m_IMemReq.m_Control.m_Fields.m_WriteEnable = 0;
+			m_NextState.m_IMemReq.m_Control.m_Fields.m_Valid = true;
+		}
 
-	m_NextState.m_Stage = Stage::Decode;
+		m_NextState.m_Stage = Stage::InstructionFetch2;
+	}
+}
+
+void MultiCycle::stageInstructionFetch2()
+{
+	if (m_State.m_IMemRes.m_Control.m_Fields.m_Ready) {
+		if (!m_State.m_IMemRes.m_Control.m_Fields.m_Valid) {
+			raiseException(Exception::InstructionAccessFault, m_State.m_PC);
+		} else {
+			m_NextState.m_InstrReg = m_State.m_IMemRes.m_Data;
+		}
+
+		m_NextState.m_Stage = Stage::Decode;
+	}
 }
 
 void MultiCycle::stageDecode()
@@ -382,29 +444,57 @@ void MultiCycle::stageExecute()
 		m_NextState.m_RegFileA = dA;
 	}
 
-	m_NextState.m_Stage = Stage::Memory;
+	m_NextState.m_Stage = Stage::Memory1;
 }
 
-void MultiCycle::stageMemory()
+void MultiCycle::stageMemory1()
 {
 	const MicroOp* uop = &m_State.m_MicroOp;
 
 	if (uop->m_Control.m_DataMem_valid) {
-		const uint32_t sz = uop->m_Control.m_DataMem_size;
-		const word_t virtualAddr = m_State.m_EffectiveAddress;
+		MMULookupResult mmuLookup;
+		mmuTranslateAddress(&mmuLookup, &m_DTLB, m_State.m_EffectiveAddress, uop->m_Control.m_DataMem_we ? PROTECTION_WRITE : PROTECTION_READ);
+		if (mmuLookup.m_Ready) {
+			if (!mmuLookup.m_Valid) {
+				switch (mmuLookup.m_Exception) {
+				case MMUException::AccessFault:
+					raiseException(uop->m_Control.m_DataMem_we ? Exception::StoreAccessFault : Exception::LoadAccessFault, m_State.m_PC);
+					break;
+				case MMUException::PageFault:
+					raiseException(uop->m_Control.m_DataMem_we ? Exception::StorePageFault : Exception::LoadPageFault, m_State.m_PC);
+					break;
+				default:
+					RISCV_CHECK(false, "MMU result is invalid but no exception has been set!");
+					break;
+				}
+			} else {
+				m_NextState.m_DMemReq.m_Addr = mmuLookup.m_PhysicalAddress;
+				m_NextState.m_DMemReq.m_Data = m_State.m_ALUResult;
+				m_NextState.m_DMemReq.m_Control.m_Fields.m_Size = uop->m_Control.m_DataMem_size;
+				m_NextState.m_DMemReq.m_Control.m_Fields.m_WriteEnable = uop->m_Control.m_DataMem_we;
+				m_NextState.m_DMemReq.m_Control.m_Fields.m_Valid = true;
+			}
 
-		if (uop->m_Control.m_DataMem_we) {
-			if (!dataMemWrite(virtualAddr, sz, m_State.m_ALUResult)) {
-				return;
-			}
-		} else {
-			if (!dataMemRead(virtualAddr, sz, m_NextState.m_DataMemResult)) {
-				return;
-			}
+			m_NextState.m_Stage = Stage::Memory2;
 		}
+	} else {
+		m_NextState.m_Stage = Stage::WriteBack;
 	}
+}
 
-	m_NextState.m_Stage = Stage::WriteBack;
+void MultiCycle::stageMemory2()
+{
+	const MicroOp* uop = &m_State.m_MicroOp;
+
+	if (m_State.m_DMemRes.m_Control.m_Fields.m_Ready) {
+		if (!m_State.m_DMemRes.m_Control.m_Fields.m_Valid) {
+			raiseException(uop->m_Control.m_DataMem_we ? Exception::StoreAccessFault : Exception::LoadAccessFault, m_State.m_PC);
+		} else {
+			m_NextState.m_DataMemResult = m_State.m_DMemRes.m_Data;
+		}
+
+		m_NextState.m_Stage = Stage::WriteBack;
+	}
 }
 
 void MultiCycle::stageWriteBack()
@@ -555,347 +645,104 @@ void MultiCycle::stageWriteBack()
 
 	clearException();
 
-	m_NextState.m_Stage = Stage::InstructionFetch;
+	m_NextState.m_Stage = Stage::InstructionFetch1;
 }
 
 //////////////////////////////////////////////////////////////////////////
-// Memory
+// MMU
 //
-bool MultiCycle::instrMemRead(word_t virtualAddress, word_t& data)
+void MultiCycle::mmuTranslateAddress(MMULookupResult* res, TLB* tlb, word_t virtualAddress, uint32_t requiredProtectionFlags)
 {
 	const word_t satp = m_State.m_CSR[CSR::satp];
-	const word_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
+	const bool noTranslationNeeded = m_State.m_PrivLevel == PrivLevel::Machine || (satp & SATP_MODE_MASK) == 0;
+	if (noTranslationNeeded) {
+		res->m_PhysicalAddress = virtualAddress;
+		res->m_Exception = MMUException::None;
+		res->m_Ready = true;
+		res->m_Valid = true;
+		return;
+	}
 
+	const word_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
+	const TLBLookupResult tlbResult = tlbLookup(tlb, virtualPageNumber);
+
+	if (tlbResult.m_Hit) {
+		const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
+		const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
+		const word_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
+
+		res->m_Ready = true;
+		res->m_Valid = ((pageProtectionFlags & requiredProtectionFlags) == requiredProtectionFlags);
+		res->m_Exception = MMUException::AccessFault; // In case the request was invalid.
+		res->m_PhysicalAddress = physicalAddress;
+		return;
+	}
+
+	// Address translation is required and TLB lookup failed. Walk the page table
+	// to find out the mapping.
+	MMUException::Enum exception = MMUException::None;
 	const MMUState::Enum mmuState = m_State.m_MMUState;
 	if (mmuState == MMUState::Idle) {
-		if (m_State.m_PrivLevel == PrivLevel::Machine || (satp & SATP_MODE_MASK) == 0) {
-			// No address translation required.
-			memRequest(virtualAddress, false, MEMOP_SIZE_4, ~0u);
-			m_NextState.m_MMUState = MMUState::WaitForMemory;
-		} else {
-			// Address translation is required.
-			RISCV_CHECK(m_State.m_PrivLevel == PrivLevel::User, "Invalid privilege level");
+		const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
+		const uint32_t vpn = (virtualPageNumber >> 10) & 1023;
+		const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
 
-			TLBLookupResult tlbResult = tlbLookup(&m_ITLB, virtualPageNumber);
-			if (tlbResult.m_Hit) {
-				const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
-				const uint32_t requiredProtectionFlags = PROTECTION_READ | PROTECTION_EXECUTE;
-
-				if ((pageProtectionFlags & requiredProtectionFlags) != requiredProtectionFlags) {
-					raiseException(Exception::InstructionAccessFault, virtualAddress);
-
-					// Exception has been raised so move on to the next stage.
-					return true;
-				}
-
-				const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
-				const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
-
-				memRequest(physicalAddress, false, MEMOP_SIZE_4, ~0u);
-				m_NextState.m_MMUState = MMUState::WaitForMemory;
-			} else {
-				// TLB miss. Page table walk
-				const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
-				const uint32_t vpn = (virtualPageNumber >> 10) & 1023;
-				const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
-
-				memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
-				m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
-			}
-		}
-	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::InstructionAccessFault, virtualAddress);
-			} else {
-				data = m_State.m_MemRes.m_Data;
-			}
-
-			m_NextState.m_MMUState = MMUState::Idle;
-
-			return true;
-		}
+		m_NextState.m_MMUMemReq.m_Addr = pageTableEntryPhysicalAddr;
+		m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Size = MEMOP_SIZE_4;
+		m_NextState.m_MMUMemReq.m_Control.m_Fields.m_WriteEnable = 0;
+		m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 1;
+		m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
 	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-				return true;
+		if (m_State.m_MMUMemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MMUMemRes.m_Control.m_Fields.m_Valid) {
+				exception = MMUException::AccessFault;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
+				pte.m_Word = m_State.m_MMUMemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
+					exception = MMUException::PageFault;
 				} else {
 					if (pte.m_Fields.m_Read == 1 || pte.m_Fields.m_Execute == 1) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
+						exception = MMUException::PageFault;
 					}
 
 					const uint32_t pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
 					const uint32_t vpn = virtualPageNumber & 1023;
 					const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
 
-					memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
+					m_NextState.m_MMUMemReq.m_Addr = pageTableEntryPhysicalAddr;
+					m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Size = MEMOP_SIZE_4;
+					m_NextState.m_MMUMemReq.m_Control.m_Fields.m_WriteEnable = 0;
+					m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 1;
 					m_NextState.m_MMUState = MMUState::PageTableWalk_L0;
 				}
 			}
 		}
 	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-				return true;
+		if (m_State.m_MMUMemRes.m_Control.m_Fields.m_Ready) {
+			if (!m_State.m_MMUMemRes.m_Control.m_Fields.m_Valid) {
+				exception = MMUException::AccessFault;
 			} else {
 				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
+				pte.m_Word = m_State.m_MMUMemRes.m_Data;
 
 				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
+					exception = MMUException::PageFault;
 				} else {
-					if (!pte.m_Fields.m_Read || !pte.m_Fields.m_Execute) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
-					} else {
-						tlbInsert(&m_ITLB, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
-						m_NextState.m_MMUState = MMUState::Idle; // Perform TLB lookup one more time.
-					}
+					// NOTE: Don't check the protection flags here. Let the next TLB lookup (which will be a hit)
+					// check them (see top of the function).
+					tlbInsert(tlb, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
+					m_NextState.m_MMUState = MMUState::Idle;
 				}
 			}
 		}
-	} else {
-		RISCV_CHECK(false, "Invalid MMU state");
 	}
 
-	return false;
-}
-
-bool MultiCycle::dataMemRead(word_t virtualAddress, uint32_t sz, word_t& data)
-{
-	const word_t satp = m_State.m_CSR[CSR::satp];
-	const word_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
-
-	const MMUState::Enum mmuState = m_State.m_MMUState;
-	if (mmuState == MMUState::Idle) {
-		if (m_State.m_PrivLevel == PrivLevel::Machine || (satp & SATP_MODE_MASK) == 0) {
-			// No address translation required.
-			memRequest(virtualAddress, false, sz, ~0u);
-			m_NextState.m_MMUState = MMUState::WaitForMemory;
-		} else {
-			// Address translation is required.
-			RISCV_CHECK(m_State.m_PrivLevel == PrivLevel::User, "Invalid privilege level");
-
-			TLBLookupResult tlbResult = tlbLookup(&m_DTLB, virtualPageNumber);
-			if (tlbResult.m_Hit) {
-				const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
-				const uint32_t requiredProtectionFlags = PROTECTION_READ;
-
-				if ((pageProtectionFlags & requiredProtectionFlags) != requiredProtectionFlags) {
-					raiseException(Exception::LoadAccessFault, virtualAddress);
-
-					// Exception has been raised so move on to the next stage.
-					return true;
-				}
-
-				const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
-				const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
-
-				memRequest(physicalAddress, false, sz, ~0u);
-				m_NextState.m_MMUState = MMUState::WaitForMemory;
-			} else {
-				// TLB miss. Page table walk
-				const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
-				const uint32_t vpn = (virtualPageNumber >> 10) & 1023;
-				const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
-
-				memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
-				m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
-			}
-		}
-	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-			} else {
-				data = m_State.m_MemRes.m_Data;
-			}
-
-			m_NextState.m_MMUState = MMUState::Idle;
-
-			return true;
-		}
-	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-				return true;
-			} else {
-				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
-
-				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
-				} else {
-					if (pte.m_Fields.m_Read == 1 || pte.m_Fields.m_Execute == 1) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
-					}
-
-					const uint32_t pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
-					const uint32_t vpn = virtualPageNumber & 1023;
-					const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
-
-					memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
-					m_NextState.m_MMUState = MMUState::PageTableWalk_L0;
-				}
-			}
-		}
-	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-				return true;
-			} else {
-				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
-
-				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
-				} else {
-					if (!pte.m_Fields.m_Read) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
-					} else {
-						tlbInsert(&m_DTLB, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
-						m_NextState.m_MMUState = MMUState::Idle; // Perform TLB lookup one more time.
-					}
-				}
-			}
-		}
-	} else {
-		RISCV_CHECK(false, "Invalid MMU state");
-	}
-
-	return false;
-}
-
-bool MultiCycle::dataMemWrite(word_t virtualAddress, uint32_t sz, word_t data)
-{
-	const word_t satp = m_State.m_CSR[CSR::satp];
-	const word_t virtualPageNumber = (virtualAddress & PAGE_NUMBER_MASK) >> PAGE_SHIFT;
-
-	const MMUState::Enum mmuState = m_State.m_MMUState;
-	if (mmuState == MMUState::Idle) {
-		if (m_State.m_PrivLevel == PrivLevel::Machine || (satp & SATP_MODE_MASK) == 0) {
-			// No address translation required.
-			memRequest(virtualAddress, true, sz, data);
-			m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-			return false;
-		} else {
-			// Address translation is required.
-			RISCV_CHECK(m_State.m_PrivLevel == PrivLevel::User, "Invalid privilege level");
-
-			TLBLookupResult tlbResult = tlbLookup(&m_DTLB, virtualPageNumber);
-			if (tlbResult.m_Hit) {
-				const uint32_t pageProtectionFlags = tlbResult.m_ProtectionFlags;
-				const uint32_t requiredProtectionFlags = PROTECTION_WRITE;
-
-				if ((pageProtectionFlags & requiredProtectionFlags) != requiredProtectionFlags) {
-					raiseException(Exception::StoreAccessFault, virtualAddress);
-
-					// Exception has been raised so move on to the next stage.
-					return true;
-				}
-
-				const uint32_t offset = virtualAddress & PAGE_ADDRESS_OFFSET_MASK;
-				const TLB::physical_addr_t physicalAddress = (tlbResult.m_PhysicalFrameNumber << PAGE_SHIFT) | offset;
-
-				memRequest(physicalAddress, true, sz, data);
-				m_NextState.m_MMUState = MMUState::WaitForMemory;
-
-				return false;
-			} else {
-				// TLB miss. Page table walk
-				const uint32_t pageTablePhysicalAddr = (satp & SATP_PTPPN_MASK) << PAGE_SHIFT;
-				const uint32_t vpn = (virtualPageNumber >> 10) & 1023;
-				const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
-
-				memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
-				m_NextState.m_MMUState = MMUState::PageTableWalk_L1;
-
-				return false;
-			}
-		}
-	} else if (mmuState == MMUState::WaitForMemory) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::StoreAccessFault, virtualAddress);
-			}
-
-			m_NextState.m_MMUState = MMUState::Idle;
-
-			return true;
-		}
-	} else if (mmuState == MMUState::PageTableWalk_L1) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::StoreAccessFault, virtualAddress);
-				return true;
-			} else {
-				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
-
-				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
-				} else {
-					if (pte.m_Fields.m_Read == 1 || pte.m_Fields.m_Execute == 1) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
-					}
-
-					const uint32_t pageTablePhysicalAddr = pte.m_Fields.m_PhysicalPageNumber << PAGE_SHIFT;
-					const uint32_t vpn = virtualPageNumber & 1023;
-					const uint32_t pageTableEntryPhysicalAddr = pageTablePhysicalAddr + (vpn * sizeof(PageTableEntry));
-
-					memRequest(pageTableEntryPhysicalAddr, false, MEMOP_SIZE_4, ~0u);
-					m_NextState.m_MMUState = MMUState::PageTableWalk_L0;
-				}
-			}
-		}
-	} else if (mmuState == MMUState::PageTableWalk_L0) {
-		if (m_State.m_MemRes.m_Control.m_Fields.m_Ready) {
-			if (!m_State.m_MemRes.m_Control.m_Fields.m_Valid) {
-				raiseException(Exception::LoadAccessFault, virtualAddress);
-				return true;
-			} else {
-				PageTableEntry pte;
-				pte.m_Word = m_State.m_MemRes.m_Data;
-
-				if (!pte.m_Fields.m_Valid || (pte.m_Fields.m_Read == 0 && pte.m_Fields.m_Write == 1)) {
-					raiseException(Exception::LoadPageFault, virtualAddress);
-					return true;
-				} else {
-					if (!pte.m_Fields.m_Write) {
-						raiseException(Exception::LoadPageFault, virtualAddress);
-						return true;
-					} else {
-						tlbInsert(&m_DTLB, virtualPageNumber, pte.m_Fields.m_PhysicalPageNumber, (pte.m_Word & PTE_PROTECTION_MASK) >> PTE_PROTECTION_SHIFT);
-						m_NextState.m_MMUState = MMUState::Idle; // Perform TLB lookup one more time.
-					}
-				}
-			}
-		}
-	} else {
-		RISCV_CHECK(false, "Invalid MMU state");
-	}
-
-	return false;
+	res->m_Ready = exception != MMUException::None;
+	res->m_Valid = false;
+	res->m_PhysicalAddress = ~0u;
+	res->m_Exception = exception;
 }
 } // namespace cpu
 } // namespace riscv
