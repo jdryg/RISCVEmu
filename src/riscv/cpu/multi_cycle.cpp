@@ -52,24 +52,25 @@ bool MultiCycle::tick(MemoryMap* mm)
 	// 3) Instruction Memory (InstructionFetchX stages)
 	if (m_State.m_MMUMemReq.m_Control.m_Fields.m_Valid) {
 		m_NextState.m_MMUMemRes = mmRequest(mm, m_State.m_MMUMemReq);
+		m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 0;
 
 		m_NextState.m_DMemRes.m_Control.m_Fields.m_Ready = 0;
 		m_NextState.m_IMemRes.m_Control.m_Fields.m_Ready = 0;
 	} else if (m_State.m_DMemReq.m_Control.m_Fields.m_Valid) {
 		m_NextState.m_DMemRes = mmRequest(mm, m_State.m_DMemReq);
+		m_NextState.m_DMemReq.m_Control.m_Fields.m_Valid = 0;
 
 		m_NextState.m_MMUMemRes.m_Control.m_Fields.m_Ready = 0;
 		m_NextState.m_IMemRes.m_Control.m_Fields.m_Ready = 0;
 	} else {
 		m_NextState.m_IMemRes = mmRequest(mm, m_State.m_IMemReq);
+		m_NextState.m_IMemReq.m_Control.m_Fields.m_Valid = 0;
 
 		m_NextState.m_MMUMemRes.m_Control.m_Fields.m_Ready = 0;
 		m_NextState.m_DMemRes.m_Control.m_Fields.m_Ready = 0;
 	}
 
-	m_NextState.m_MMUMemReq.m_Control.m_Fields.m_Valid = 0;
-	m_NextState.m_DMemReq.m_Control.m_Fields.m_Valid = 0;
-	m_NextState.m_IMemReq.m_Control.m_Fields.m_Valid = 0;
+	const word_t instrRetired = m_State.m_CSR[CSR::minstret];
 
 	switch (m_State.m_Stage) {
 	case Stage::InstructionFetch1:
@@ -99,7 +100,7 @@ bool MultiCycle::tick(MemoryMap* mm)
 
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
 
-	return m_State.m_Stage == Stage::InstructionFetch1 && m_State.m_MMUState == MMUState::Idle;
+	return instrRetired != m_State.m_CSR[CSR::minstret];
 }
 
 PrivLevel::Enum MultiCycle::getPrivilegeLevel()
