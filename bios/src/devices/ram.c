@@ -41,7 +41,7 @@ int ramInit(RAM* ram, uint32_t baseAddr, uint32_t pageSize)
 
 			dummy = oldValue;
 
-			// TODO: Flush cache once we have caches
+			asm volatile ("sfence.vma");
 
 			newValue = *ptr;
 			*ptr = oldValue;

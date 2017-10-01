@@ -8,7 +8,8 @@ struct CPUType
 	enum Enum : uint32_t
 	{
 		SingleCycle = 0,
-		MultiCycle
+		MultiCycle = 1,
+		MultiCycleCache = 2
 	};
 };
 

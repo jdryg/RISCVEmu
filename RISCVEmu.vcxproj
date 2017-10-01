@@ -186,6 +186,7 @@
     <ClCompile Include="src\riscv\alu.cpp" />
     <ClCompile Include="src\riscv\cache.cpp" />
     <ClCompile Include="src\riscv\cpu\multi_cycle.cpp" />
+    <ClCompile Include="src\riscv\cpu\multi_cycle_cache.cpp" />
     <ClCompile Include="src\riscv\cpu\single_cycle.cpp" />
     <ClCompile Include="src\riscv\disasm.cpp" />
     <ClCompile Include="src\riscv\memory_map.cpp" />
@@ -250,6 +251,7 @@
     <ClInclude Include="src\riscv\alu.h" />
     <ClInclude Include="src\riscv\cache.h" />
     <ClInclude Include="src\riscv\cpu\multi_cycle.h" />
+    <ClInclude Include="src\riscv\cpu\multi_cycle_cache.h" />
     <ClInclude Include="src\riscv\cpu\single_cycle.h" />
     <ClInclude Include="src\riscv\defines.h" />
     <ClInclude Include="src\riscv\disasm.h" />

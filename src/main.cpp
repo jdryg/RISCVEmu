@@ -2,6 +2,7 @@
 #include "riscv/icpu.h"
 #include "riscv/cpu/single_cycle.h"
 #include "riscv/cpu/multi_cycle.h"
+#include "riscv/cpu/multi_cycle_cache.h"
 #include "riscv/memory_map.h"
 #include "riscv/disasm.h"
 #include "console.h"
@@ -43,6 +44,7 @@
 #define UI_WIN_MEMORY_EDITOR   0x00000040
 #define UI_WIN_PAGE_TABLE      0x00000080
 #define UI_WIN_TRACING         0x00000100
+#define UI_WIN_CPU_INTERNALS   0x80000000
 
 #define KERNEL_BASE_ADDR       0x00000000 // BIOS or Kernel? This is the code that runs in M-mode with no address translation for memory accesses.
 #define RAM_BASE_ADDR          0x00100000
@@ -223,6 +225,8 @@ int initEmulator(App* app)
 	riscv::ICPU* cpu = nullptr;
 	if (app->m_Config.m_CPUType == CPUType::MultiCycle) {
 		cpu = new riscv::cpu::MultiCycle();
+	} else if (app->m_Config.m_CPUType == CPUType::MultiCycleCache) {
+		cpu = new riscv::cpu::MultiCycleCache();
 	} else {
 		cpu = new riscv::cpu::SingleCycle();
 	}
@@ -382,6 +386,10 @@ void doMainMenu(App* app)
 				app->m_WinVis |= UI_WIN_TRACING;
 			}
 
+			if (ImGui::MenuItem("CPU Internals", nullptr)) {
+				app->m_WinVis |= UI_WIN_CPU_INTERNALS;
+			}
+
 			ImGui::EndMenu();
 		}
 
@@ -449,7 +457,8 @@ void doWin_Setup(App* app)
 			if (ImGui::CollapsingHeader("System configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
 				const char* cpuTypes[] = {
 					"Single Cycle",
-					"Multi Cycle"
+					"Multi Cycle",
+					"Multi Cycle w/ Caches"
 				};
 				ImGui::PushItemWidth(-60.0f);
 				ImGui::Combo("CPU", &app->m_Config.m_CPUType, &cpuTypes[0], BX_COUNTOF(cpuTypes));
@@ -1075,6 +1084,25 @@ void doWin_Tracing(App* app)
 	}
 }
 
+void doWin_CPUInternals(App* app)
+{
+	bool opened = (app->m_WinVis & UI_WIN_CPU_INTERNALS) != 0;
+	if (ImGui::BeginDock("CPU Internals", &opened, 0)) {
+		if (!app->m_CPU) {
+			ImGui::Text("Emulator is not running");
+		} else {
+			app->m_CPU->gui();
+		}
+	}
+	ImGui::EndDock();
+
+	if (!opened) {
+		app->m_WinVis &= ~UI_WIN_CPU_INTERNALS;
+	} else {
+		app->m_WinVis |= UI_WIN_CPU_INTERNALS;
+	}
+}
+
 void doUI(App* app)
 {
 	doMainMenu(app);
@@ -1113,6 +1141,10 @@ void doUI(App* app)
 
 	if (app->m_WinVis & UI_WIN_TRACING) {
 		doWin_Tracing(app);
+	}
+
+	if (app->m_WinVis & UI_WIN_CPU_INTERNALS) {
+		doWin_CPUInternals(app);
 	}
 
 	//ImGui::Begin("Style Editor", nullptr); 
@@ -1189,7 +1221,8 @@ int main()
 		| UI_WIN_PERF_COUNTERS 
 		| UI_WIN_MEMORY_EDITOR 
 		| UI_WIN_PAGE_TABLE
-		| UI_WIN_TRACING);
+		| UI_WIN_TRACING
+		| UI_WIN_CPU_INTERNALS);
 
 	if (configLoad(&app.m_Config, "./config.json")) {
 		app.m_KernelELFData = readFile(app.m_Config.m_KernelELFFile, app.m_KernelELFSize);

@@ -289,6 +289,7 @@ public:
 
 	virtual void reset(word_t pc) = 0;
 	virtual bool tick(MemoryMap* mm) = 0;
+	virtual void gui() {};
 
 	virtual PrivLevel::Enum getPrivilegeLevel() = 0;
 	virtual word_t getPC() = 0;

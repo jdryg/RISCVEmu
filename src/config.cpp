@@ -72,6 +72,8 @@ bool configLoad(Config* cfg, const char* filename)
 	if (cpuTypeToken) {
 		if (!strncmp(cpuTypeToken->str, "single_cycle", 12)) {
 			cfg->m_CPUType = CPUType::SingleCycle;
+		} else if (!strncmp(cpuTypeToken->str, "multi_cycle_cache", 17)) {
+			cfg->m_CPUType = CPUType::MultiCycleCache;
 		} else if (!strncmp(cpuTypeToken->str, "multi_cycle", 11)) {
 			cfg->m_CPUType = CPUType::MultiCycle;
 		}
@@ -116,7 +118,7 @@ bool configSave(Config* cfg, const char* filename)
 	escapeString(cfg->m_VHDFile, vhdFile);
 
 	fprintf(f, "{\n");
-	fprintf(f, "\t\"CPUType\": \"%s\",\n", cfg->m_CPUType == CPUType::MultiCycle ? "multi_cycle" : "single_cycle");
+	fprintf(f, "\t\"CPUType\": \"%s\",\n", cfg->m_CPUType == CPUType::MultiCycle ? "multi_cycle" : (cfg->m_CPUType == CPUType::MultiCycleCache ? "multi_cycle_cache" : "single_cycle"));
 	fprintf(f, "\t\"KernelELF\": \"%s\",\n", kernelFile);
 	fprintf(f, "\t\"SimSpeed\": \"%d\",\n", cfg->m_SimSpeed);
 	fprintf(f, "\t\"RAMSizeMB\": \"%d\",\n", cfg->m_RAMSizeMB);

@@ -56,6 +56,12 @@ uint32_t load(const uint8_t* data, uint32_t baseAddr, riscv::MemoryMap* mm)
 		}
 	}
 
+	// Make sure the ROM size is a multiply of the page size.
+	if ((romSize & 4095) != 0) {
+		romSize = (romSize & 0xFFFFFC00) + 4096;
+		romData = (uint8_t*)realloc(romData, romSize);
+	}
+
 	// Create the ROM
 	riscv::Device* rom = riscv::device::romCreate(romSize, romData, romSize);
 	riscv::mmMapDevice(mm, rom, baseAddr, romSize);
