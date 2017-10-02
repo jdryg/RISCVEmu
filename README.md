@@ -5,9 +5,21 @@ Toy RISC-V emulator
 
 ## What's this about?
 
-Ok, you are still here. My goal for this project is to build a basic RISC-V simulator (targeting RV32I only) which will be expanded to include a pipeline, caches, OoO execution, etc. If I manage to make it that far (which I doubt) the next step will be to translate the code to a circuit in [DLS](https://makingartstudios.itch.io/dls) (my simple logic simulator).
+Ok, you are still here. My goal for this project is to build a basic RISC-V emulator (targeting RV32I only) which will in turn help me build a RISC-V circuit in [DLS](https://makingartstudios.itch.io/dls).
 
-It's a long way until then, though. Currently the code simulates (poorly) a single cycle CPU. The main focus at the moment is to build a minimal BIOS/Kernel for loading test apps and testing the CPU.
+### Roadmap 
+
+- [x] Single cycle CPU with M and U mode support (ISA emulation)
+- [x] Simple BIOS/Kernel
+- [x] Virtual Hard Disk and a few small test apps
+- [x] Simple debugger
+- [x] Multi cycle CPU
+- [ ] Caches
+- [ ] Minimal pipelined CPU
+- [ ] Branch prediction
+- [ ] TODO: Add more goals here! :)
+
+One important note: Performance isn't a concern for this project.
 
 ![Screenshot](https://cdn.rawgit.com/jdryg/RISCVEmu/master/img/screenshot_2017_08_30.png)
 
