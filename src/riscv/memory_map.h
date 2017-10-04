@@ -84,6 +84,31 @@ bool uartReceive(Device* dev, uint8_t data);
 
 Device* vhdCreate(const char* filename);
 }
+
+//////////////////////////////////////////////////////////////////////////
+// Helpers
+//
+inline void memReqRead(MemoryRequest* req, uint32_t addr, uint8_t sz)
+{
+	req->m_Addr = addr;
+	req->m_Control.m_Fields.m_Size = sz;
+	req->m_Control.m_Fields.m_WriteEnable = 0;
+	req->m_Control.m_Fields.m_Valid = 1;
+}
+
+inline void memReqWrite(MemoryRequest* req, uint32_t addr, uint32_t data, uint8_t sz)
+{
+	req->m_Addr = addr;
+	req->m_Data = data;
+	req->m_Control.m_Fields.m_Size = sz;
+	req->m_Control.m_Fields.m_WriteEnable = 1;
+	req->m_Control.m_Fields.m_Valid = 1;
+}
+
+inline void memReqInvalidate(MemoryRequest* req)
+{
+	req->m_Control.m_Fields.m_Valid = 0;
+}
 }
 
 #endif

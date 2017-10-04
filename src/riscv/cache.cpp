@@ -85,7 +85,7 @@ void cacheShutdown(Cache* cache)
 	bx::memSet(cache, 0, sizeof(Cache));
 }
 
-uint32_t cacheLookupTag(Cache* cache, uint32_t setID, uint32_t tag, uint32_t& matchedTag)
+uint32_t cacheSetLookupTag(Cache* cache, uint32_t setID, uint32_t tag, uint32_t& matchedTag)
 {
 	const CacheSet* set = &cache->m_Sets[setID];
 	const uint32_t* setTags = set->m_Tags;
@@ -104,7 +104,7 @@ uint32_t cacheLookupTag(Cache* cache, uint32_t setID, uint32_t tag, uint32_t& ma
 	return hitBlock;
 }
 
-uint32_t cacheFindInvalidBlock(Cache* cache, uint32_t setID)
+uint32_t cacheSetFindInvalidBlock(Cache* cache, uint32_t setID)
 {
 	const CacheSet* set = &cache->m_Sets[setID];
 	const uint32_t* setTags = set->m_Tags;
@@ -121,179 +121,202 @@ uint32_t cacheFindInvalidBlock(Cache* cache, uint32_t setID)
 	return invalidBlock;
 }
 
+void cacheBlockWriteWord(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t wordID, uint32_t val)
+{
+	CacheSet* set = &cache->m_Sets[setID];
+	CacheBlock* block = &set->m_Blocks[blockID];
+	uint32_t* cacheLine = (uint32_t*)block->m_Data;
+	cacheLine[wordID] = val;
+}
+
+uint32_t cacheBlockReadWord(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t wordID)
+{
+	const CacheSet* set = &cache->m_Sets[setID];
+	const CacheBlock* block = &set->m_Blocks[blockID];
+	const uint32_t* cacheLine = (uint32_t*)block->m_Data;
+	return cacheLine[wordID];
+}
+
+void cache_Idle(Cache* cache, uint32_t randomSrc, const MemoryRequest& cpuReq, MemoryResponse& cpuRes)
+{
+	if (!cpuReq.m_Control.m_Fields.m_Valid) {
+		return;
+	}
+	
+	const uint32_t addr = cpuReq.m_Addr;
+
+	const uint32_t setIndex = (addr >> cache->m_IndexShift) & cache->m_IndexMask;
+	const uint32_t tag = (addr >> cache->m_TagShift) & cache->m_TagMask;
+
+	CacheSet* set = &cache->m_Sets[setIndex];
+
+	// Lookup the specified tag in the set...
+	uint32_t matchedTag;
+	const uint32_t hitBlock = cacheSetLookupTag(cache, setIndex, tag, matchedTag);
+
+	if (hitBlock != ~0u) {
+		RISCV_CHECK(matchedTag == set->m_Tags[hitBlock], "Invalid tag");
+
+		// Cache hit
+		const uint32_t numBytesToRead = 1 << cpuReq.m_Control.m_Fields.m_Size;
+		const uint32_t byteMask = 0xFFFFFFFF >> (32 - (numBytesToRead << 3));
+		const uint32_t blockByteOffset = addr & cache->m_OffsetMask;
+		RISCV_CHECK(blockByteOffset + numBytesToRead <= cache->m_LineSize, "Cannot read from multiple cache lines");
+
+		// TODO: Do this with word aligned reads/writes.
+		uint32_t* word = (uint32_t*)&set->m_Blocks[hitBlock].m_Data[blockByteOffset];
+		if (cpuReq.m_Control.m_Fields.m_WriteEnable) {
+			*word = (*word & ~byteMask) | (cpuReq.m_Data & byteMask);
+			set->m_Tags[hitBlock] |= TAG_BIT_DIRTY;
+		}
+
+		cpuRes.m_Control.m_Fields.m_Ready = 1;
+		cpuRes.m_Control.m_Fields.m_Valid = (matchedTag & TAG_BIT_ERROR) ? 0 : 1;
+		cpuRes.m_Data = *word & byteMask;
+	} else {
+		// Cache miss.
+		// Find the cache line to write data in.
+		const uint32_t invalidBlock = cacheSetFindInvalidBlock(cache, setIndex);
+		const uint32_t targetBlock = invalidBlock != ~0u ? invalidBlock : (randomSrc % cache->m_NumWays);
+
+		// If the selected block isn't valid or if it's valid but not dirty, there's no need for write-back. 
+		// Replace it immediatelly.
+		const uint32_t globalBlockID = setIndex * cache->m_NumWays + targetBlock;
+		const uint32_t blockTag = set->m_Tags[targetBlock];
+		if (!(blockTag & TAG_BIT_VALID) || !(blockTag & TAG_BIT_DIRTY)) {
+			// Update the tag.
+			set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
+
+			// Prepare 1st word read from memory
+			const uint32_t nextWordAddr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
+			memReqRead(&cache->m_MemReq, nextWordAddr, 2);
+
+			// Switch to Allocate state.
+			cache->m_NextState.m_TargetBlockID = globalBlockID;
+			cache->m_NextState.m_NextWordID = 0;
+			cache->m_NextState.m_State = Cache::State::Allocate;
+		} else {
+			// Block must be written back to memory before reading new data.
+			set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
+
+			const uint32_t nextWordAddr = ((blockTag & TAG_VALUE_MASK) << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
+			const uint32_t data = cacheBlockReadWord(cache, setIndex, targetBlock, 0);
+			memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
+
+			cache->m_NextState.m_TargetBlockID = globalBlockID;
+			cache->m_NextState.m_NextWordID = 0;
+			cache->m_NextState.m_StateAfterWriteBack = Cache::State::Allocate;
+			cache->m_NextState.m_State = Cache::State::WriteBack;
+		}
+	}
+}
+
+void cache_Allocate(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
+{
+	if (!cache->m_MemRes.m_Control.m_Fields.m_Ready) {
+		return;
+	}
+
+	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
+	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
+	CacheSet* set = &cache->m_Sets[setIndex];
+
+	if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
+		// Raise the ERROR bit of the cache line.
+		set->m_Tags[blockIndex] |= TAG_BIT_ERROR;
+		cache->m_NextState.m_State = Cache::State::Idle;
+	} else {
+		cacheBlockWriteWord(cache, setIndex, blockIndex, cache->m_State.m_NextWordID, cache->m_MemRes.m_Data);
+		cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
+
+		if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
+			// We are done filling in the cache block.
+			memReqInvalidate(&cache->m_MemReq);
+			cache->m_NextState.m_State = Cache::State::Idle;
+		} else {
+			const uint32_t nextWordAddr = cache->m_MemReq.m_Addr + 4;
+			memReqRead(&cache->m_MemReq, nextWordAddr, 2);
+		}
+	}
+}
+
+void cache_WriteBack(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
+{
+	// Write back the marked cache line to memory.
+	if (!cache->m_MemRes.m_Control.m_Fields.m_Ready) {
+		return;
+	}
+		
+	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
+	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
+
+	if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
+		// Can this happen?
+		RISCV_CHECK(false, "Invalid memory access during cache line write-back");
+	} else {
+		cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
+
+		if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
+			// We are done filling in the cache block.
+			memReqInvalidate(&cache->m_MemReq);
+
+			cache->m_NextState.m_State = cache->m_State.m_StateAfterWriteBack;
+		} else {
+			const uint32_t nextWordAddr = cache->m_MemReq.m_Addr + 4;
+			const uint32_t data = cacheBlockReadWord(cache, setIndex, blockIndex, cache->m_NextState.m_NextWordID);
+
+			memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
+		}
+	}
+}
+
+void cache_Flush(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
+{
+	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
+	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
+	CacheSet* set = &cache->m_Sets[setIndex];
+
+	const uint32_t blockTag = set->m_Tags[blockIndex];
+	const uint32_t tag = blockTag & TAG_VALUE_MASK;
+	if ((blockTag & TAG_BIT_VALID) && (blockTag & TAG_BIT_DIRTY) && !(blockTag & TAG_BIT_ERROR)) {
+		set->m_Tags[blockIndex] &= ~(TAG_BIT_VALID | TAG_BIT_DIRTY);
+
+		const uint32_t nextWordAddr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
+		const uint32_t data = cacheBlockReadWord(cache, setIndex, blockIndex, 0);
+		memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
+
+		cache->m_NextState.m_NextWordID = 0;
+		cache->m_NextState.m_StateAfterWriteBack = Cache::State::Flush;
+		cache->m_NextState.m_State = Cache::State::WriteBack;
+	} else {
+		if (cache->m_State.m_TargetBlockID == cache->m_NumSets * cache->m_NumWays - 1) {
+			cache->m_NextState.m_State = Cache::State::Idle;
+		} else {
+			cache->m_NextState.m_TargetBlockID = cache->m_State.m_TargetBlockID + 1;
+		}
+	}
+}
+
 void cacheTick(Cache* cache, uint32_t randomSrc, const MemoryRequest& cpuReq, MemoryResponse& cpuRes)
 {
 	Cache::State::Enum state = cache->m_State.m_State;
 
-	cache->m_MemReq.m_Control.m_Fields.m_Valid = 0;
+	memReqInvalidate(&cache->m_MemReq);
+	cpuRes.m_Control.m_Fields.m_Ready = 0;
 
-	if (state == Cache::State::Idle) {
-		if (cpuReq.m_Control.m_Fields.m_Valid) {
-			const uint32_t addr = cpuReq.m_Addr;
-
-			const uint32_t setIndex = (addr >> cache->m_IndexShift) & cache->m_IndexMask;
-			const uint32_t tag = (addr >> cache->m_TagShift) & cache->m_TagMask;
-
-			CacheSet* set = &cache->m_Sets[setIndex];
-
-			// Lookup the specified tag in the set...
-			uint32_t matchedTag;
-			const uint32_t hitBlock = cacheLookupTag(cache, setIndex, tag, matchedTag);
-
-			if (hitBlock != ~0u) {
-				RISCV_CHECK(matchedTag == set->m_Tags[hitBlock], "Invalid tag");
-
-				// Cache hit
-				const uint32_t numBytesToRead = 1 << cpuReq.m_Control.m_Fields.m_Size;
-				const uint32_t byteMask = 0xFFFFFFFF >> (32 - (numBytesToRead << 3));
-				const uint32_t blockByteOffset = addr & cache->m_OffsetMask;
-				RISCV_CHECK(blockByteOffset + numBytesToRead <= cache->m_LineSize, "Cannot read from multiple cache lines");
-
-				uint32_t* word = (uint32_t*)&set->m_Blocks[hitBlock].m_Data[blockByteOffset];
-				if (cpuReq.m_Control.m_Fields.m_WriteEnable) {
-					*word = (*word & ~byteMask) | (cpuReq.m_Data & byteMask);
-					set->m_Tags[hitBlock] |= TAG_BIT_DIRTY;
-				}
-
-				cpuRes.m_Control.m_Fields.m_Ready = 1;
-				cpuRes.m_Control.m_Fields.m_Valid = (matchedTag & TAG_BIT_ERROR) ? 0 : 1;
-				cpuRes.m_Data = *word & byteMask;
-			} else {
-				// Cache miss.
-				cpuRes.m_Control.m_Fields.m_Ready = 0;
-
-				// Find the cache line to write data in.
-				const uint32_t invalidBlock = cacheFindInvalidBlock(cache, setIndex);
-				const uint32_t targetBlock = invalidBlock != ~0u ? invalidBlock : (randomSrc % cache->m_NumWays);
-
-				// If the selected block isn't valid or if it's valid but not dirty, there's no need for write-back. 
-				// Replace it immediatelly.
-				const uint32_t globalBlockID = setIndex * cache->m_NumWays + targetBlock;
-				const uint32_t blockTag = set->m_Tags[targetBlock];
-				if (!(blockTag & TAG_BIT_VALID) || !(blockTag & TAG_BIT_DIRTY)) {
-					// Update the tag.
-					set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
-
-					// Prepare 1st word read from memory
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 1;
-					cache->m_MemReq.m_Control.m_Fields.m_Size = 2;
-					cache->m_MemReq.m_Control.m_Fields.m_WriteEnable = 0;
-					cache->m_MemReq.m_Addr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-
-					// Switch to Allocate state.
-					cache->m_NextState.m_TargetBlockID = globalBlockID;
-					cache->m_NextState.m_NextWordID = 0;
-					cache->m_NextState.m_State = Cache::State::Allocate;
-				} else {
-					// Block must be written back to memory before reading new data.
-					uint32_t* cacheLine = (uint32_t*)set->m_Blocks[targetBlock].m_Data;
-
-					set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
-
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 1;
-					cache->m_MemReq.m_Control.m_Fields.m_Size = 2;
-					cache->m_MemReq.m_Control.m_Fields.m_WriteEnable = 1;
-					cache->m_MemReq.m_Addr = ((blockTag & TAG_VALUE_MASK) << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-					cache->m_MemReq.m_Data = cacheLine[0];
-
-					cache->m_NextState.m_TargetBlockID = globalBlockID;
-					cache->m_NextState.m_NextWordID = 0;
-					cache->m_NextState.m_StateAfterWriteBack = Cache::State::Allocate;
-					cache->m_NextState.m_State = Cache::State::WriteBack;
-				}
-			}
-		} else {
-			cpuRes.m_Control.m_Fields.m_Ready = 0;
-		}
-	} else if (state == Cache::State::Allocate) {
-		cpuRes.m_Control.m_Fields.m_Ready = 0;
-
-		if (cache->m_MemRes.m_Control.m_Fields.m_Ready) {
-			const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-			const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-			CacheSet* set = &cache->m_Sets[setIndex];
-
-			if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
-				// Raise the ERROR bit of the cache line.
-				set->m_Tags[blockIndex] |= TAG_BIT_ERROR;
-				cache->m_NextState.m_State = Cache::State::Idle;
-			} else {
-				uint32_t* cacheLine = (uint32_t*)set->m_Blocks[blockIndex].m_Data;
-				cacheLine[cache->m_State.m_NextWordID] = cache->m_MemRes.m_Data;
-				cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
-
-				if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
-					// We are done filling in the cache block.
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 0;
-					cache->m_NextState.m_State = Cache::State::Idle;
-				} else {
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 1;
-					cache->m_MemReq.m_Control.m_Fields.m_Size = 2; // == 4 bytes
-					cache->m_MemReq.m_Control.m_Fields.m_WriteEnable = 0;
-					cache->m_MemReq.m_Addr += 4;
-				}
-			}
-		}
-	} else if (state == Cache::State::WriteBack) {
-		cpuRes.m_Control.m_Fields.m_Ready = 0;
-
-		// Write back the marked cache line to memory.
-		if (cache->m_MemRes.m_Control.m_Fields.m_Ready) {
-			const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-			const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-			CacheSet* set = &cache->m_Sets[setIndex];
-
-			if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
-				// Can this happen?
-				RISCV_CHECK(false, "Invalid memory access during cache line write-back");
-			} else {
-				uint32_t* cacheLine = (uint32_t*)set->m_Blocks[blockIndex].m_Data;
-				cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
-
-				if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
-					// We are done filling in the cache block.
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 0;
-					cache->m_NextState.m_State = cache->m_State.m_StateAfterWriteBack;
-				} else {
-					cache->m_MemReq.m_Control.m_Fields.m_Valid = 1;
-					cache->m_MemReq.m_Control.m_Fields.m_Size = 2;
-					cache->m_MemReq.m_Control.m_Fields.m_WriteEnable = 1;
-					cache->m_MemReq.m_Addr += 4;
-					cache->m_MemReq.m_Data = cacheLine[cache->m_NextState.m_NextWordID];
-				}
-			}
-		}
-	} else if (state == Cache::State::Flush) {
-		cpuRes.m_Control.m_Fields.m_Ready = 0;
-
-		const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-		const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-		CacheSet* set = &cache->m_Sets[setIndex];
-
-		const uint32_t blockTag = set->m_Tags[blockIndex];
-		const uint32_t tag = blockTag & TAG_VALUE_MASK;
-		if ((blockTag & TAG_BIT_VALID) && (blockTag & TAG_BIT_DIRTY) && !(blockTag & TAG_BIT_ERROR)) {
-			const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-			const uint32_t* cacheLine = (uint32_t*)set->m_Blocks[blockIndex].m_Data;
-
-			set->m_Tags[blockIndex] &= ~(TAG_BIT_VALID | TAG_BIT_DIRTY);
-
-			cache->m_MemReq.m_Control.m_Fields.m_Valid = 1;
-			cache->m_MemReq.m_Control.m_Fields.m_Size = 2;
-			cache->m_MemReq.m_Control.m_Fields.m_WriteEnable = 1;
-			cache->m_MemReq.m_Addr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-			cache->m_MemReq.m_Data = cacheLine[0];
-
-			cache->m_NextState.m_NextWordID = 0;
-			cache->m_NextState.m_StateAfterWriteBack = Cache::State::Flush;
-			cache->m_NextState.m_State = Cache::State::WriteBack;
-		} else {
-			if (cache->m_State.m_TargetBlockID == cache->m_NumSets * cache->m_NumWays - 1) {
-				cache->m_NextState.m_State = Cache::State::Idle;
-			} else {
-				cache->m_NextState.m_TargetBlockID = cache->m_State.m_TargetBlockID + 1;
-			}
-		}
+	switch (state) {
+	case Cache::State::Idle:
+		cache_Idle(cache, randomSrc, cpuReq, cpuRes);
+		break;
+	case Cache::State::Allocate:
+		cache_Allocate(cache, randomSrc, cpuReq, cpuRes);
+		break;
+	case Cache::State::WriteBack:
+		cache_WriteBack(cache, randomSrc, cpuReq, cpuRes);
+		break;
+	case Cache::State::Flush:
+		cache_Flush(cache, randomSrc, cpuReq, cpuRes);
+		break;
 	}
 
 	// Tick
