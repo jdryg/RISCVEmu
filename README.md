@@ -14,7 +14,7 @@ Ok, you are still here. My goal for this project is to build a basic RISC-V emul
 - [x] Virtual Hard Disk and a few small test apps
 - [x] Simple debugger
 - [x] Multi cycle CPU
-- [ ] Caches
+- [x] Caches
 - [ ] Minimal pipelined CPU
 - [ ] Branch prediction
 - [ ] TODO: Add more goals here! :)
