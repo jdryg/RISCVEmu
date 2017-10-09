@@ -1,6 +1,7 @@
 #include "cache.h"
 #include "memory_map.h"
 #include "../debug.h"
+#include "../math.h"
 #include <bx/bx.h>
 
 #define TAG_BIT_VALID  0x80000000
@@ -10,23 +11,6 @@
 
 namespace riscv
 {
-bool isPowerOfTwo(uint32_t x)
-{
-	return (x & (x - 1)) == 0;
-}
-
-uint32_t log2ui_pow2(uint32_t v)
-{
-	static const uint32_t b[] = { 0xAAAAAAAA, 0xCCCCCCCC, 0xF0F0F0F0, 0xFF00FF00, 0xFFFF0000 };
-
-	uint32_t r = (v & b[0]) != 0;
-	for (uint32_t i = 4; i > 0; i--) {
-		r |= ((v & b[i]) != 0) << i;
-	}
-
-	return r;
-}
-
 bool cacheInit(Cache* cache, uint32_t lineSize, uint32_t numSets, uint32_t numWays)
 {
 	RISCV_CHECK(lineSize >= sizeof(uint32_t) && isPowerOfTwo(lineSize), "Cache: Line size should be at least 4 bytes long and a power of 2.");

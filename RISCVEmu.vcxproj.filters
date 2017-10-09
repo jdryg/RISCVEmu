@@ -118,6 +118,9 @@
     <ClCompile Include="src\riscv\cpu\multi_cycle_cache.cpp">
       <Filter>src\riscv\cpu</Filter>
     </ClCompile>
+    <ClCompile Include="src\riscv\cache_controller.cpp">
+      <Filter>src\riscv</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\config.h">
@@ -314,6 +317,18 @@
     </ClInclude>
     <ClInclude Include="src\riscv\cpu\multi_cycle_cache.h">
       <Filter>src\riscv\cpu</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\tcache.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\icache.h">
+      <Filter>src\riscv</Filter>
+    </ClInclude>
+    <ClInclude Include="src\math.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\riscv\cache_controller.h">
+      <Filter>src\riscv</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

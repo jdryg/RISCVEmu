@@ -6,6 +6,7 @@
 #include "../alu.h"
 #include "../cache.h"
 #include "../memory_map.h" // MemoryRequest, MemoryResponse
+#include "../cache_controller.h"
 #include "../../debug.h"
 
 namespace riscv
@@ -162,7 +163,7 @@ private:
 			
 			// Misc
 			uint32_t m_Breakpoint : 1;
-			uint32_t m_FlushTLB : 1;
+			uint32_t m_FlushCaches : 1;
 		} m_Control;
 	};
 
@@ -227,14 +228,20 @@ private:
 	State m_NextState;
 
 	// Data Cache
-	Cache m_DCache;
+	ICache* m_DCache;
+	CacheController m_DCacheController;
 	MemoryRequest m_DCacheReq; // CPU -> cache
 	MemoryResponse m_DCacheRes; // cache -> CPU
+	MemoryRequest m_DCacheMemReq; // cache -> RAM
+	MemoryResponse m_DCacheMemRes; // RAM -> cache
 
 	// Instruction Cache
-	Cache m_ICache;
+	ICache* m_ICache;
+	CacheController m_ICacheController;
 	MemoryRequest m_ICacheReq; // CPU -> cache
 	MemoryResponse m_ICacheRes; // cache -> CPU
+	MemoryRequest m_ICacheMemReq; // cache -> RAM
+	MemoryResponse m_ICacheMemRes; // RAM -> cache
 
 	// Memory Management Unit
 	TLB m_ITLB;
@@ -267,7 +274,7 @@ private:
 	void uopALU(MicroOp* uop, ALUASrc::Enum srcA, ALUBSrc::Enum srcB, ALUFunction::Enum func, bool secondaryFunc);
 	void uopNextPC(MicroOp* uop, NextPCSrc::Enum src);
 	void uopBreakpoint(MicroOp* uop);
-	void uopFlushTLB(MicroOp* uop);
+	void uopFlushCaches(MicroOp* uop);
 	void uopCSR(MicroOp* uop, uint32_t csr, bool we, CSRDataSrc::Enum src);
 
 	void csr64Inc(CSR::Enum csrLow, uint64_t n);
@@ -324,9 +331,9 @@ inline void MultiCycleCache::uopBreakpoint(MicroOp* uop)
 	uop->m_Control.m_Breakpoint = 1;
 }
 
-inline void MultiCycleCache::uopFlushTLB(MicroOp* uop)
+inline void MultiCycleCache::uopFlushCaches(MicroOp* uop)
 {
-	uop->m_Control.m_FlushTLB = 1;
+	uop->m_Control.m_FlushCaches = 1;
 }
 
 inline void MultiCycleCache::uopCSR(MicroOp* uop, uint32_t csr, bool we, CSRDataSrc::Enum src)

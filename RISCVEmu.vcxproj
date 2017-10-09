@@ -185,6 +185,7 @@
     <ClCompile Include="src\nfd\nfd_win.cpp" />
     <ClCompile Include="src\riscv\alu.cpp" />
     <ClCompile Include="src\riscv\cache.cpp" />
+    <ClCompile Include="src\riscv\cache_controller.cpp" />
     <ClCompile Include="src\riscv\cpu\multi_cycle.cpp" />
     <ClCompile Include="src\riscv\cpu\multi_cycle_cache.cpp" />
     <ClCompile Include="src\riscv\cpu\single_cycle.cpp" />
@@ -246,17 +247,21 @@
     <ClInclude Include="src\imgui\widgets\imgui_memory_editor.h" />
     <ClInclude Include="src\imgui_impl_glfw.h" />
     <ClInclude Include="src\json\json.h" />
+    <ClInclude Include="src\math.h" />
     <ClInclude Include="src\nfd\common.h" />
     <ClInclude Include="src\nfd\nfd_common.h" />
     <ClInclude Include="src\riscv\alu.h" />
     <ClInclude Include="src\riscv\cache.h" />
+    <ClInclude Include="src\riscv\cache_controller.h" />
     <ClInclude Include="src\riscv\cpu\multi_cycle.h" />
     <ClInclude Include="src\riscv\cpu\multi_cycle_cache.h" />
     <ClInclude Include="src\riscv\cpu\single_cycle.h" />
     <ClInclude Include="src\riscv\defines.h" />
     <ClInclude Include="src\riscv\disasm.h" />
+    <ClInclude Include="src\riscv\icache.h" />
     <ClInclude Include="src\riscv\icpu.h" />
     <ClInclude Include="src\riscv\memory_map.h" />
+    <ClInclude Include="src\riscv\tcache.h" />
     <ClInclude Include="src\riscv\tlb.h" />
   </ItemGroup>
   <ItemGroup>

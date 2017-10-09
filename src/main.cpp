@@ -1238,7 +1238,7 @@ int main()
 
 	app.m_GLFWWindow = glfwCreateWindow(1280, 720, "RISC-V Emulator (RV32I)", nullptr, nullptr);
 	glfwMakeContextCurrent(app.m_GLFWWindow);
-//	glfwSwapInterval(0);
+//	glfwSwapInterval(0); // Uncomment to disable V-Sync
 
 	// Setup ImGui binding
 	ImGui_ImplGlfw_Init(app.m_GLFWWindow, true);

@@ -107,7 +107,12 @@ inline void memReqWrite(MemoryRequest* req, uint32_t addr, uint32_t data, uint8_
 
 inline void memReqInvalidate(MemoryRequest* req)
 {
-	req->m_Control.m_Fields.m_Valid = 0;
+	req->m_Control.m_Word = 0;
+}
+
+inline void memResInvalidate(MemoryResponse* res)
+{
+	res->m_Control.m_Word = 0;
 }
 }
 

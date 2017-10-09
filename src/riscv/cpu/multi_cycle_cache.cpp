@@ -1,5 +1,6 @@
 #include "multi_cycle_cache.h"
 #include "../memory_map.h"
+#include "../tcache.h"
 #include "../../debug.h"
 #include <bx/bx.h>
 
@@ -25,8 +26,17 @@ void MultiCycleCache::reset(word_t pc)
 {
 	tlbInit(&m_ITLB, 16);
 	tlbInit(&m_DTLB, 16);
-	cacheInit(&m_ICache, 64, 64, 8);
-	cacheInit(&m_DCache, 64, 64, 8);
+//	cacheInit(&m_ICache, 64, 64, 8);
+	{
+		m_ICache = new TCache<64, 8, 64>();
+		ccInit(&m_ICacheController, m_ICache);
+	}
+
+//	cacheInit(&m_DCache, 64, 64, 8);
+	{
+		m_DCache = new TCache<64, 8, 64>();
+		ccInit(&m_DCacheController, m_DCache);
+	}
 
 	m_NextState.m_Mode = Mode::InstrExec;
 	m_NextState.m_Stage = Stage::InstructionFetch1;
@@ -63,37 +73,42 @@ bool MultiCycleCache::tick(MemoryMap* mm)
 	} else if (m_UncachedMemReq.m_Control.m_Fields.m_Valid) {
 		m_UncachedMemRes = mmRequest(mm, m_UncachedMemReq);
 		m_UncachedMemReq.m_Control.m_Fields.m_Valid = 0;
-	} else if (m_DCache.m_MemReq.m_Control.m_Fields.m_Valid) {
-		m_DCache.m_MemRes = mmRequest(mm, m_DCache.m_MemReq);
-	} else if (m_ICache.m_MemReq.m_Control.m_Fields.m_Valid) {
-		m_ICache.m_MemRes = mmRequest(mm, m_ICache.m_MemReq);
+	} else if (m_DCacheMemReq.m_Control.m_Fields.m_Valid) {
+		m_DCacheMemRes = mmRequest(mm, m_DCacheMemReq);
+	} else if (m_ICacheMemReq.m_Control.m_Fields.m_Valid) {
+		m_ICacheMemRes = mmRequest(mm, m_ICacheMemReq);
 	}
+
+	bool icacheStall = ccSimulate(&m_ICacheController, &m_ICacheReq, &m_ICacheRes, &m_ICacheMemReq, &m_ICacheMemRes);
+	bool dcacheStall = ccSimulate(&m_DCacheController, &m_DCacheReq, &m_DCacheRes, &m_DCacheMemReq, &m_DCacheMemRes);
 
 	const word_t instrRetired = m_State.m_CSR[CSR::minstret];
 
 	if (m_State.m_Mode == Mode::InstrExec) {
-		switch (m_State.m_Stage) {
-		case Stage::InstructionFetch1:
-			stageInstructionFetch1();
-			break;
-		case Stage::InstructionFetch2:
-			stageInstructionFetch2();
-			break;
-		case Stage::Decode:
-			stageDecode();
-			break;
-		case Stage::Execute:
-			stageExecute();
-			break;
-		case Stage::Memory1:
-			stageMemory1();
-			break;
-		case Stage::Memory2:
-			stageMemory2();
-			break;
-		case Stage::WriteBack:
-			stageWriteBack();
-			break;
+		if (!icacheStall && !dcacheStall) {
+			switch (m_State.m_Stage) {
+			case Stage::InstructionFetch1:
+				stageInstructionFetch1();
+				break;
+			case Stage::InstructionFetch2:
+				stageInstructionFetch2();
+				break;
+			case Stage::Decode:
+				stageDecode();
+				break;
+			case Stage::Execute:
+				stageExecute();
+				break;
+			case Stage::Memory1:
+				stageMemory1();
+				break;
+			case Stage::Memory2:
+				stageMemory2();
+				break;
+			case Stage::WriteBack:
+				stageWriteBack();
+				break;
+			}
 		}
 	} else if (m_State.m_Mode == Mode::PageTableWalk) {
 		mmuPageTableWalk();
@@ -101,8 +116,8 @@ bool MultiCycleCache::tick(MemoryMap* mm)
 
 	csr64Inc(CSR::mcycle, 1);
 
-	cacheTick(&m_ICache, m_State.m_CSR[CSR::mcycle], m_ICacheReq, m_ICacheRes);
-	cacheTick(&m_DCache, m_State.m_CSR[CSR::mcycle], m_DCacheReq, m_DCacheRes);
+	ccTick(&m_ICacheController);
+	ccTick(&m_DCacheController);
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
 
 	return instrRetired != m_State.m_CSR[CSR::minstret];
@@ -367,7 +382,7 @@ void MultiCycleCache::stageDecode()
 					}
 				} else if (funct7 == 9) {
 					// sfence.vma
-					uopFlushTLB(uop);
+					uopFlushCaches(uop);
 				} else if (funct7 == 24) {
 					if (rs2 == 2) {
 						// mret
@@ -651,11 +666,11 @@ void MultiCycleCache::stageWriteBack()
 
 	// TLB flush
 	{
-		if (uop->m_Control.m_FlushTLB) {
+		if (uop->m_Control.m_FlushCaches) {
 			tlbFlush(&m_DTLB);
 			tlbFlush(&m_ITLB);
-			cacheFlush(&m_ICache);
-			cacheFlush(&m_DCache);
+			ccFlushCache(&m_ICacheController);
+			ccFlushCache(&m_DCacheController);
 		}
 	}
 
