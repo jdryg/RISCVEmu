@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define EXTRACT_BITS(word, startBit, numBits) ((word >> startBit) & ((1 << numBits) - 1))
+
 inline bool isPowerOfTwo(uint32_t x)
 {
 	return (x & (x - 1)) == 0;

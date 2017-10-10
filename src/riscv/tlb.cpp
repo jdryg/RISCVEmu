@@ -25,6 +25,12 @@ bool tlbInit(TLB* tlb, uint32_t numEntries)
 	return true;
 }
 
+void tlbShutdown(TLB* tlb)
+{
+	free(tlb->m_Entries);
+	free(tlb->m_FIFO);
+}
+
 void tlbFlush(TLB* tlb)
 {
 	const uint32_t numEntries = tlb->m_NumEntries;

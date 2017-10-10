@@ -7,7 +7,7 @@ namespace riscv
 {
 struct MemoryRequest;
 struct MemoryResponse;
-class ICache;
+struct Cache;
 
 struct CacheController
 {
@@ -36,7 +36,7 @@ struct CacheController
 		uint32_t m_ActiveBlockOffset;
 	};
 
-	ICache* m_Cache;
+	Cache* m_Cache;
 	State m_State;
 	State m_NextState;
 
@@ -47,7 +47,7 @@ struct CacheController
 	uint32_t m_BlockOffset;
 };
 
-void ccInit(CacheController* cc, ICache* cache);
+void ccInit(CacheController* cc, Cache* cache);
 void ccDestroy(CacheController* cc);
 
 // NOTE: Returns true if the CPU should stall. Otherwise false.

@@ -1,18 +1,13 @@
 #include "multi_cycle.h"
 #include "../memory_map.h"
 #include "../../debug.h"
+#include "../../math.h"
 #include <bx/bx.h>
 
 namespace riscv
 {
 namespace cpu
 {
-#define EXTRACT_BITS(word, startBit, numBits) ((word >> startBit) & ((1 << numBits) - 1))
-
-#define MEMOP_SIZE_1 0
-#define MEMOP_SIZE_2 1
-#define MEMOP_SIZE_4 2
-
 MultiCycle::MultiCycle()
 {
 }

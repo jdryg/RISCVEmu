@@ -4,312 +4,168 @@
 #include "../math.h"
 #include <bx/bx.h>
 
-#define TAG_BIT_VALID  0x80000000
-#define TAG_BIT_DIRTY  0x40000000
-#define TAG_BIT_ERROR  0x20000000 // Error means that something went wrong during Allocate (e.g. tried to read an invalid memory location).
-#define TAG_VALUE_MASK 0x0FFFFFFF // Max 28-bit tag
-
 namespace riscv
 {
-bool cacheInit(Cache* cache, uint32_t lineSize, uint32_t numSets, uint32_t numWays)
+struct Cache
 {
-	RISCV_CHECK(lineSize >= sizeof(uint32_t) && isPowerOfTwo(lineSize), "Cache: Line size should be at least 4 bytes long and a power of 2.");
+	uint32_t* m_Tags;
+	uint8_t* m_Data;
+	uint32_t m_BlockSize;
+	uint32_t m_NumSets;
+	uint32_t m_NumWays;
+
+	uint32_t m_OffsetMask;
+	uint32_t m_IndexMask;
+	uint32_t m_IndexShift;
+	uint32_t m_TagMask;
+	uint32_t m_TagShift;
+};
+
+Cache* cacheCreate(uint32_t numSets, uint32_t numWays, uint32_t blockSize)
+{
+	RISCV_CHECK(blockSize >= sizeof(uint32_t) && isPowerOfTwo(blockSize), "Cache: Block size should be at least 4 bytes long and a power of 2.");
 	RISCV_CHECK(numSets != 0 && isPowerOfTwo(numSets), "Cache: Number of sets should be a power of 2 greater than 0.");
 	RISCV_CHECK(numWays != 0 && isPowerOfTwo(numWays), "Cache: Number of ways should be a power of 2 greater than 0.");
 
+	Cache* cache = (Cache*)malloc(sizeof(Cache));
 	bx::memSet(cache, 0, sizeof(Cache));
 
-	cache->m_LineSize = lineSize;
+	cache->m_BlockSize = blockSize;
 	cache->m_NumSets = numSets;
 	cache->m_NumWays = numWays;
 
-	const uint32_t log2LineSize = log2ui_pow2(lineSize);
+	const uint32_t log2BlockSize = log2ui_pow2(blockSize);
 	const uint32_t log2NumSets = log2ui_pow2(numSets);
 
-	cache->m_OffsetMask = ((1 << log2LineSize) - 1);
+	cache->m_OffsetMask = ((1 << log2BlockSize) - 1);
 	cache->m_IndexMask = (1 << log2NumSets) - 1;
-	cache->m_IndexShift = log2LineSize;
-	cache->m_TagMask = (1 << (32 - log2LineSize - log2NumSets)) - 1;
-	cache->m_TagShift = log2LineSize + log2NumSets;
+	cache->m_IndexShift = log2BlockSize;
+	cache->m_TagMask = (1 << (32 - log2BlockSize - log2NumSets)) - 1;
+	cache->m_TagShift = log2BlockSize + log2NumSets;
 
 	const uint32_t numBlocks = numSets * numWays;
-	cache->m__Tags = (uint32_t*)malloc(sizeof(uint32_t) * numBlocks);
-	bx::memSet(cache->m__Tags, 0, sizeof(uint32_t) * numBlocks); // Sets all Valid bits to 0.
+	cache->m_Tags = (uint32_t*)malloc(sizeof(uint32_t) * numBlocks);
+	bx::memSet(cache->m_Tags, 0, sizeof(uint32_t) * numBlocks);
 
-	const uint32_t dataSize = numBlocks * lineSize;
-	cache->m__Data = (uint8_t*)malloc(sizeof(uint8_t) * dataSize);
+	const uint32_t dataSize = numBlocks * blockSize;
+	cache->m_Data = (uint8_t*)malloc(sizeof(uint8_t) * dataSize);
 //	bx::memSet(cache->m_Data, 0, sizeof(uint8_t) * dataSize);
 
-	cache->m__Blocks = (CacheBlock*)malloc(sizeof(CacheBlock) * numBlocks);
-	for (uint32_t i = 0; i < numBlocks; ++i) {
-		cache->m__Blocks[i].m_Data = &cache->m__Data[i * lineSize];
-	}
-
-	cache->m_Sets = (CacheSet*)malloc(sizeof(CacheSet) * numSets);
-	for (uint32_t i = 0; i < numSets; ++i) {
-		CacheSet* set = &cache->m_Sets[i];
-		set->m_Blocks = &cache->m__Blocks[i * numWays];
-		set->m_Tags = &cache->m__Tags[i * numWays];
-	}
-
-	cache->m_NextState.m_State = Cache::State::Idle;
-	cache->m_MemReq.m_Control.m_Fields.m_Valid = 0;
-	cache->m_MemRes.m_Control.m_Fields.m_Ready = 0;
-	bx::memCopy(&cache->m_State, &cache->m_NextState, sizeof(Cache::State));
-
-	return true;
+	return cache;
 }
 
-void cacheShutdown(Cache* cache)
+void cacheDestroy(Cache* cache)
 {
-	free(cache->m_Sets);
-	free(cache->m__Blocks);
-	free(cache->m__Tags);
-	free(cache->m__Data);
-	bx::memSet(cache, 0, sizeof(Cache));
+	free(cache->m_Tags);
+	free(cache->m_Data);
+	free(cache);
 }
 
-uint32_t cacheSetLookupTag(Cache* cache, uint32_t setID, uint32_t tag, uint32_t& matchedTag)
+uint32_t cacheLookup(Cache* cache, uint32_t addr, uint32_t& tag, uint32_t& setID, uint32_t& blockOffset)
 {
-	const CacheSet* set = &cache->m_Sets[setID];
-	const uint32_t* setTags = set->m_Tags;
+	tag = (addr >> cache->m_TagShift) & cache->m_TagMask;
+	setID = (addr >> cache->m_IndexShift) & cache->m_IndexMask;
+	blockOffset = addr & cache->m_OffsetMask;
 
-	uint32_t hitBlock = ~0u;
-	for (uint32_t iWay = 0; iWay < cache->m_NumWays; ++iWay) {
-		const uint32_t setTag = setTags[iWay];
-		if ((setTag & TAG_BIT_VALID) && ((setTag & TAG_VALUE_MASK) == tag)) {
-			RISCV_CHECK(hitBlock == ~0u, "!!!");
-			hitBlock = iWay;
-			matchedTag = setTag;
-//			break;
+	const uint32_t numWays = cache->m_NumWays;
+	const uint32_t* setTags = &cache->m_Tags[setID * numWays];
+	for (uint32_t i = 0; i < numWays; ++i) {
+		uint32_t blockTag = setTags[i];
+		if (cacheBlockIsValid(blockTag) && cacheBlockGetTag(blockTag) == tag) {
+			return i;
 		}
 	}
 
-	return hitBlock;
+	return ~0u;
 }
 
-uint32_t cacheSetFindInvalidBlock(Cache* cache, uint32_t setID)
+uint32_t cacheRead(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t blockOffset, uint32_t n, void* data)
 {
-	const CacheSet* set = &cache->m_Sets[setID];
-	const uint32_t* setTags = set->m_Tags;
+	RISCV_CHECK(setID < cache->m_NumSets, "Cache: Invalid set index");
+	RISCV_CHECK(blockID < cache->m_NumWays, "Cache: Invalid block index");
+	RISCV_CHECK(blockOffset < cache->m_BlockSize, "Cache: Invalid block offset");
+	RISCV_CHECK(n != 0, "Cache: Cannot read 0 bytes from the cache");
 
-	uint32_t invalidBlock = ~0u;
-	for (uint32_t iWay = 0; iWay < cache->m_NumWays; ++iWay) {
-		const uint32_t setTag = setTags[iWay];
-		if (!(setTag & TAG_BIT_VALID)) {
-			invalidBlock = iWay;
-			break;
+	const uint32_t maxN = cache->m_BlockSize - blockOffset;
+	const uint32_t nRead = n < maxN ? n : maxN;
+
+	const uint8_t* blockData = &cache->m_Data[(setID * cache->m_NumWays + blockID) * cache->m_BlockSize];
+	bx::memCopy(data, &blockData[blockOffset], nRead);
+
+	return nRead;
+}
+
+uint32_t cacheWrite(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t blockOffset, uint32_t n, const void* data)
+{
+	RISCV_CHECK(setID < cache->m_NumSets, "Cache: Invalid set index");
+	RISCV_CHECK(blockID < cache->m_NumWays, "Cache: Invalid block index");
+	RISCV_CHECK(blockOffset < cache->m_BlockSize, "Cache: Invalid block offset");
+	RISCV_CHECK(n != 0, "Cache: Cannot read 0 bytes from the cache");
+
+	const uint32_t maxN = cache->m_BlockSize - blockOffset;
+	const uint32_t nWrite = n < maxN ? n : maxN;
+
+	uint8_t* blockData = &cache->m_Data[(setID * cache->m_NumWays + blockID) * cache->m_BlockSize];
+	bx::memCopy(&blockData[blockOffset], data, nWrite);
+
+	return nWrite;
+}
+
+uint32_t cacheGetBlockTagBits(Cache* cache, uint32_t setID, uint32_t blockID)
+{
+	RISCV_CHECK(setID < cache->m_NumSets, "Cache: Invalid set index");
+	RISCV_CHECK(blockID < cache->m_NumWays, "Cache: Invalid block index");
+
+	const uint32_t* setTags = &cache->m_Tags[setID * cache->m_NumWays];
+	return setTags[blockID];
+}
+
+void cacheSetBlockTagBits(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t tagBits)
+{
+	RISCV_CHECK(setID < cache->m_NumSets, "Cache: Invalid set index");
+	RISCV_CHECK(blockID < cache->m_NumWays, "Cache: Invalid block index");
+
+	uint32_t* setTags = &cache->m_Tags[setID * cache->m_NumWays];
+	setTags[blockID] = tagBits;
+}
+
+uint32_t cacheGetEmptyBlock(Cache* cache, uint32_t setID)
+{
+	const uint32_t numWays = cache->m_NumWays;
+	const uint32_t* setTags = &cache->m_Tags[setID * numWays];
+	for (uint32_t i = 0; i < numWays; ++i) {
+		uint32_t blockTag = setTags[i];
+		if (!cacheBlockIsValid(blockTag)) {
+			return i;
 		}
 	}
 
-	return invalidBlock;
+	return ~0u;
 }
 
-void cacheBlockWriteWord(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t wordID, uint32_t val)
+uint32_t cacheMakeAddress(Cache* cache, uint32_t tag, uint32_t setID, uint32_t blockOffset)
 {
-	CacheSet* set = &cache->m_Sets[setID];
-	CacheBlock* block = &set->m_Blocks[blockID];
-	uint32_t* cacheLine = (uint32_t*)block->m_Data;
-	cacheLine[wordID] = val;
+	const uint32_t offsetMask = cache->m_OffsetMask;
+	const uint32_t indexMask = cache->m_IndexMask;
+	const uint32_t indexShift = cache->m_IndexShift;
+	const uint32_t tagMask = cache->m_TagMask;
+	const uint32_t tagShift = cache->m_TagShift;
+
+	return (blockOffset & offsetMask) | ((setID & indexMask) << indexShift) | ((tag & tagMask) << tagShift);
 }
 
-uint32_t cacheBlockReadWord(Cache* cache, uint32_t setID, uint32_t blockID, uint32_t wordID)
+uint32_t cacheGetNumSets(Cache* cache)
 {
-	const CacheSet* set = &cache->m_Sets[setID];
-	const CacheBlock* block = &set->m_Blocks[blockID];
-	const uint32_t* cacheLine = (uint32_t*)block->m_Data;
-	return cacheLine[wordID];
+	return cache->m_NumSets;
 }
 
-void cache_Idle(Cache* cache, uint32_t randomSrc, const MemoryRequest& cpuReq, MemoryResponse& cpuRes)
+uint32_t cacheGetNumWays(Cache* cache)
 {
-	if (!cpuReq.m_Control.m_Fields.m_Valid) {
-		return;
-	}
-	
-	const uint32_t addr = cpuReq.m_Addr;
-
-	const uint32_t setIndex = (addr >> cache->m_IndexShift) & cache->m_IndexMask;
-	const uint32_t tag = (addr >> cache->m_TagShift) & cache->m_TagMask;
-
-	CacheSet* set = &cache->m_Sets[setIndex];
-
-	// Lookup the specified tag in the set...
-	uint32_t matchedTag;
-	const uint32_t hitBlock = cacheSetLookupTag(cache, setIndex, tag, matchedTag);
-
-	if (hitBlock != ~0u) {
-		RISCV_CHECK(matchedTag == set->m_Tags[hitBlock], "Invalid tag");
-
-		// Cache hit
-		const uint32_t numBytesToRead = 1 << cpuReq.m_Control.m_Fields.m_Size;
-		const uint32_t byteMask = 0xFFFFFFFF >> (32 - (numBytesToRead << 3));
-		const uint32_t blockByteOffset = addr & cache->m_OffsetMask;
-		RISCV_CHECK(blockByteOffset + numBytesToRead <= cache->m_LineSize, "Cannot read from multiple cache lines");
-
-		// TODO: Do this with word aligned reads/writes.
-		uint32_t* word = (uint32_t*)&set->m_Blocks[hitBlock].m_Data[blockByteOffset];
-		if (cpuReq.m_Control.m_Fields.m_WriteEnable) {
-			*word = (*word & ~byteMask) | (cpuReq.m_Data & byteMask);
-			set->m_Tags[hitBlock] |= TAG_BIT_DIRTY;
-		}
-
-		cpuRes.m_Control.m_Fields.m_Ready = 1;
-		cpuRes.m_Control.m_Fields.m_Valid = (matchedTag & TAG_BIT_ERROR) ? 0 : 1;
-		cpuRes.m_Data = *word & byteMask;
-	} else {
-		// Cache miss.
-		// Find the cache line to write data in.
-		const uint32_t invalidBlock = cacheSetFindInvalidBlock(cache, setIndex);
-		const uint32_t targetBlock = invalidBlock != ~0u ? invalidBlock : (randomSrc % cache->m_NumWays);
-
-		// If the selected block isn't valid or if it's valid but not dirty, there's no need for write-back. 
-		// Replace it immediatelly.
-		const uint32_t globalBlockID = setIndex * cache->m_NumWays + targetBlock;
-		const uint32_t blockTag = set->m_Tags[targetBlock];
-		if (!(blockTag & TAG_BIT_VALID) || !(blockTag & TAG_BIT_DIRTY)) {
-			// Update the tag.
-			set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
-
-			// Prepare 1st word read from memory
-			const uint32_t nextWordAddr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-			memReqRead(&cache->m_MemReq, nextWordAddr, 2);
-
-			// Switch to Allocate state.
-			cache->m_NextState.m_TargetBlockID = globalBlockID;
-			cache->m_NextState.m_NextWordID = 0;
-			cache->m_NextState.m_State = Cache::State::Allocate;
-		} else {
-			// Block must be written back to memory before reading new data.
-			set->m_Tags[targetBlock] = TAG_BIT_VALID | tag;
-
-			const uint32_t nextWordAddr = ((blockTag & TAG_VALUE_MASK) << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-			const uint32_t data = cacheBlockReadWord(cache, setIndex, targetBlock, 0);
-			memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
-
-			cache->m_NextState.m_TargetBlockID = globalBlockID;
-			cache->m_NextState.m_NextWordID = 0;
-			cache->m_NextState.m_StateAfterWriteBack = Cache::State::Allocate;
-			cache->m_NextState.m_State = Cache::State::WriteBack;
-		}
-	}
+	return cache->m_NumWays;
 }
 
-void cache_Allocate(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
+uint32_t cacheGetBlockSize(Cache* cache)
 {
-	if (!cache->m_MemRes.m_Control.m_Fields.m_Ready) {
-		return;
-	}
-
-	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-	CacheSet* set = &cache->m_Sets[setIndex];
-
-	if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
-		// Raise the ERROR bit of the cache line.
-		set->m_Tags[blockIndex] |= TAG_BIT_ERROR;
-		cache->m_NextState.m_State = Cache::State::Idle;
-	} else {
-		cacheBlockWriteWord(cache, setIndex, blockIndex, cache->m_State.m_NextWordID, cache->m_MemRes.m_Data);
-		cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
-
-		if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
-			// We are done filling in the cache block.
-			memReqInvalidate(&cache->m_MemReq);
-			cache->m_NextState.m_State = Cache::State::Idle;
-		} else {
-			const uint32_t nextWordAddr = cache->m_MemReq.m_Addr + 4;
-			memReqRead(&cache->m_MemReq, nextWordAddr, 2);
-		}
-	}
-}
-
-void cache_WriteBack(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
-{
-	// Write back the marked cache line to memory.
-	if (!cache->m_MemRes.m_Control.m_Fields.m_Ready) {
-		return;
-	}
-		
-	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-
-	if (!cache->m_MemRes.m_Control.m_Fields.m_Valid) {
-		// Can this happen?
-		RISCV_CHECK(false, "Invalid memory access during cache line write-back");
-	} else {
-		cache->m_NextState.m_NextWordID = cache->m_State.m_NextWordID + 1;
-
-		if (cache->m_NextState.m_NextWordID >= (cache->m_LineSize >> 2)) {
-			// We are done filling in the cache block.
-			memReqInvalidate(&cache->m_MemReq);
-
-			cache->m_NextState.m_State = cache->m_State.m_StateAfterWriteBack;
-		} else {
-			const uint32_t nextWordAddr = cache->m_MemReq.m_Addr + 4;
-			const uint32_t data = cacheBlockReadWord(cache, setIndex, blockIndex, cache->m_NextState.m_NextWordID);
-
-			memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
-		}
-	}
-}
-
-void cache_Flush(Cache* cache, uint32_t /*randomSrc*/, const MemoryRequest& /*cpuReq*/, MemoryResponse& /*cpuRes*/)
-{
-	const uint32_t setIndex = cache->m_State.m_TargetBlockID / cache->m_NumWays;
-	const uint32_t blockIndex = cache->m_State.m_TargetBlockID % cache->m_NumWays;
-	CacheSet* set = &cache->m_Sets[setIndex];
-
-	const uint32_t blockTag = set->m_Tags[blockIndex];
-	const uint32_t tag = blockTag & TAG_VALUE_MASK;
-	if ((blockTag & TAG_BIT_VALID) && (blockTag & TAG_BIT_DIRTY) && !(blockTag & TAG_BIT_ERROR)) {
-		set->m_Tags[blockIndex] &= ~(TAG_BIT_VALID | TAG_BIT_DIRTY);
-
-		const uint32_t nextWordAddr = (tag << cache->m_TagShift) | (setIndex << cache->m_IndexShift);
-		const uint32_t data = cacheBlockReadWord(cache, setIndex, blockIndex, 0);
-		memReqWrite(&cache->m_MemReq, nextWordAddr, data, 2);
-
-		cache->m_NextState.m_NextWordID = 0;
-		cache->m_NextState.m_StateAfterWriteBack = Cache::State::Flush;
-		cache->m_NextState.m_State = Cache::State::WriteBack;
-	} else {
-		if (cache->m_State.m_TargetBlockID == cache->m_NumSets * cache->m_NumWays - 1) {
-			cache->m_NextState.m_State = Cache::State::Idle;
-		} else {
-			cache->m_NextState.m_TargetBlockID = cache->m_State.m_TargetBlockID + 1;
-		}
-	}
-}
-
-void cacheTick(Cache* cache, uint32_t randomSrc, const MemoryRequest& cpuReq, MemoryResponse& cpuRes)
-{
-	Cache::State::Enum state = cache->m_State.m_State;
-
-	memReqInvalidate(&cache->m_MemReq);
-	cpuRes.m_Control.m_Fields.m_Ready = 0;
-
-	switch (state) {
-	case Cache::State::Idle:
-		cache_Idle(cache, randomSrc, cpuReq, cpuRes);
-		break;
-	case Cache::State::Allocate:
-		cache_Allocate(cache, randomSrc, cpuReq, cpuRes);
-		break;
-	case Cache::State::WriteBack:
-		cache_WriteBack(cache, randomSrc, cpuReq, cpuRes);
-		break;
-	case Cache::State::Flush:
-		cache_Flush(cache, randomSrc, cpuReq, cpuRes);
-		break;
-	}
-
-	// Tick
-	bx::memCopy(&cache->m_State, &cache->m_NextState, sizeof(Cache::State));
-}
-
-void cacheFlush(Cache* cache)
-{
-	cache->m_NextState.m_State = Cache::State::Flush;
-	cache->m_NextState.m_TargetBlockID = 0; // Start scanning all blocks
+	return cache->m_BlockSize;
 }
 }

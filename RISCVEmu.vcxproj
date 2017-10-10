@@ -258,10 +258,8 @@
     <ClInclude Include="src\riscv\cpu\single_cycle.h" />
     <ClInclude Include="src\riscv\defines.h" />
     <ClInclude Include="src\riscv\disasm.h" />
-    <ClInclude Include="src\riscv\icache.h" />
     <ClInclude Include="src\riscv\icpu.h" />
     <ClInclude Include="src\riscv\memory_map.h" />
-    <ClInclude Include="src\riscv\tcache.h" />
     <ClInclude Include="src\riscv\tlb.h" />
   </ItemGroup>
   <ItemGroup>

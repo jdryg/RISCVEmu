@@ -4,13 +4,14 @@
 #include "../icpu.h"
 #include "../tlb.h"
 #include "../alu.h"
-#include "../cache.h"
 #include "../memory_map.h" // MemoryRequest, MemoryResponse
 #include "../cache_controller.h"
 #include "../../debug.h"
 
 namespace riscv
 {
+struct Cache;
+
 namespace cpu
 {
 class MultiCycleCache : public ICPU
@@ -228,7 +229,7 @@ private:
 	State m_NextState;
 
 	// Data Cache
-	ICache* m_DCache;
+	Cache* m_DCache;
 	CacheController m_DCacheController;
 	MemoryRequest m_DCacheReq; // CPU -> cache
 	MemoryResponse m_DCacheRes; // cache -> CPU
@@ -236,7 +237,7 @@ private:
 	MemoryResponse m_DCacheMemRes; // RAM -> cache
 
 	// Instruction Cache
-	ICache* m_ICache;
+	Cache* m_ICache;
 	CacheController m_ICacheController;
 	MemoryRequest m_ICacheReq; // CPU -> cache
 	MemoryResponse m_ICacheRes; // cache -> CPU

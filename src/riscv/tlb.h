@@ -31,6 +31,7 @@ struct TLBLookupResult
 };
 
 bool tlbInit(TLB* tlb, uint32_t numEntries);
+void tlbShutdown(TLB* tlb);
 TLBLookupResult tlbLookup(const TLB* tlb, TLB::virtual_addr_t virtualPageNumber);
 void tlbInsert(TLB* tlb, TLB::virtual_addr_t virtualPageNumber, TLB::physical_addr_t physicalPageNumber, uint32_t protectionFlags);
 void tlbFlush(TLB* tlb);

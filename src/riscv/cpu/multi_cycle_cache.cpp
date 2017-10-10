@@ -1,42 +1,46 @@
 #include "multi_cycle_cache.h"
 #include "../memory_map.h"
-#include "../tcache.h"
+#include "../cache.h"
 #include "../../debug.h"
+#include "../../math.h"
 #include <bx/bx.h>
 
 namespace riscv
 {
 namespace cpu
 {
-#define EXTRACT_BITS(word, startBit, numBits) ((word >> startBit) & ((1 << numBits) - 1))
-
-#define MEMOP_SIZE_1 0
-#define MEMOP_SIZE_2 1
-#define MEMOP_SIZE_4 2
-
-MultiCycleCache::MultiCycleCache()
+MultiCycleCache::MultiCycleCache() 
+	: m_ICache(nullptr)
+	, m_DCache(nullptr)
 {
 }
 
 MultiCycleCache::~MultiCycleCache()
 {
+	if (m_ICache) {
+		cacheDestroy(m_ICache);
+		m_ICache = nullptr;
+	}
+
+	if (m_DCache) {
+		cacheDestroy(m_DCache);
+		m_DCache = nullptr;
+	}
+	
+	tlbShutdown(&m_ITLB);
+	tlbShutdown(&m_DTLB);
 }
 
 void MultiCycleCache::reset(word_t pc)
 {
 	tlbInit(&m_ITLB, 16);
 	tlbInit(&m_DTLB, 16);
-//	cacheInit(&m_ICache, 64, 64, 8);
-	{
-		m_ICache = new TCache<64, 8, 64>();
-		ccInit(&m_ICacheController, m_ICache);
-	}
 
-//	cacheInit(&m_DCache, 64, 64, 8);
-	{
-		m_DCache = new TCache<64, 8, 64>();
-		ccInit(&m_DCacheController, m_DCache);
-	}
+	m_ICache = cacheCreate(64, 8, 64);
+	ccInit(&m_ICacheController, m_ICache);
+
+	m_DCache = cacheCreate(64, 8, 64);
+	ccInit(&m_DCacheController, m_DCache);
 
 	m_NextState.m_Mode = Mode::InstrExec;
 	m_NextState.m_Stage = Stage::InstructionFetch1;

@@ -318,12 +318,6 @@
     <ClInclude Include="src\riscv\cpu\multi_cycle_cache.h">
       <Filter>src\riscv\cpu</Filter>
     </ClInclude>
-    <ClInclude Include="src\riscv\tcache.h">
-      <Filter>src\riscv</Filter>
-    </ClInclude>
-    <ClInclude Include="src\riscv\icache.h">
-      <Filter>src\riscv</Filter>
-    </ClInclude>
     <ClInclude Include="src\math.h">
       <Filter>src</Filter>
     </ClInclude>

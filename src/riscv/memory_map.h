@@ -7,6 +7,10 @@ namespace riscv
 {
 struct MemoryMap;
 
+#define MEMOP_SIZE_1 0
+#define MEMOP_SIZE_2 1
+#define MEMOP_SIZE_4 2
+
 struct Device
 {
 	uint32_t m_Flags;
