@@ -914,6 +914,7 @@ void doWin_MemoryEditor(App* app)
 		} else {
 			ImGui::PushItemWidth(240.0f);
 			ImGui::Combo("Device", &app->m_SelectedMemDevice, app->m_MemDevicesComboStr);
+			ImGui::PopItemWidth();
 
 			MemoryDeviceDesc* memDev = &app->m_MemoryDevices[app->m_SelectedMemDevice];
 			app->m_MemoryEditor.ReadOnly = memDev->m_IsReadOnly;

@@ -22,6 +22,7 @@ public:
 
 	virtual void reset(word_t pc);
 	virtual bool tick(MemoryMap* mm);
+	virtual void gui();
 
 	virtual PrivLevel::Enum getPrivilegeLevel();
 	virtual word_t getPC();
@@ -253,6 +254,11 @@ private:
 	// Uncached memory access
 	MemoryRequest m_UncachedMemReq;
 	MemoryResponse m_UncachedMemRes;
+
+	// UI
+	bool m_ICacheNeedsStall; // NOTE: Those 2 are actually locals to the tick() function but they are here to use them in gui().
+	bool m_DCacheNeedsStall;
+	bool m_SingleStep;
 
 	void stageInstructionFetch1();
 	void stageInstructionFetch2();

@@ -3,7 +3,9 @@
 #include "../cache.h"
 #include "../../debug.h"
 #include "../../math.h"
+#include "../../imgui/imgui.h"
 #include <bx/bx.h>
+#include <bx/string.h>
 
 namespace riscv
 {
@@ -12,6 +14,7 @@ namespace cpu
 MultiCycleCache::MultiCycleCache() 
 	: m_ICache(nullptr)
 	, m_DCache(nullptr)
+	, m_SingleStep(false)
 {
 }
 
@@ -83,13 +86,13 @@ bool MultiCycleCache::tick(MemoryMap* mm)
 		m_ICacheMemRes = mmRequest(mm, m_ICacheMemReq);
 	}
 
-	bool icacheStall = ccSimulate(&m_ICacheController, &m_ICacheReq, &m_ICacheRes, &m_ICacheMemReq, &m_ICacheMemRes);
-	bool dcacheStall = ccSimulate(&m_DCacheController, &m_DCacheReq, &m_DCacheRes, &m_DCacheMemReq, &m_DCacheMemRes);
+	m_ICacheNeedsStall = ccSimulate(&m_ICacheController, &m_ICacheReq, &m_ICacheRes, &m_ICacheMemReq, &m_ICacheMemRes);
+	m_DCacheNeedsStall = ccSimulate(&m_DCacheController, &m_DCacheReq, &m_DCacheRes, &m_DCacheMemReq, &m_DCacheMemRes);
 
 	const word_t instrRetired = m_State.m_CSR[CSR::minstret];
 
 	if (m_State.m_Mode == Mode::InstrExec) {
-		if (!icacheStall && !dcacheStall) {
+		if (!m_ICacheNeedsStall && !m_DCacheNeedsStall) {
 			switch (m_State.m_Stage) {
 			case Stage::InstructionFetch1:
 				stageInstructionFetch1();
@@ -124,7 +127,7 @@ bool MultiCycleCache::tick(MemoryMap* mm)
 	ccTick(&m_DCacheController);
 	bx::memCopy(&m_State, &m_NextState, sizeof(State));
 
-	return instrRetired != m_State.m_CSR[CSR::minstret];
+	return m_SingleStep || instrRetired != m_State.m_CSR[CSR::minstret];
 }
 
 PrivLevel::Enum MultiCycleCache::getPrivilegeLevel()
@@ -165,6 +168,7 @@ word_t MultiCycleCache::getOutputPin(OutputPin::Enum pin)
 
 bool MultiCycleCache::getMemWord(MemoryMap* mm, word_t virtualAddress, word_t& data)
 {
+	// TODO: Use caches
 	const uint32_t satp = m_State.m_CSR[CSR::satp];
 	if (m_State.m_PrivLevel == PrivLevel::Machine || (satp & SATP_MODE_MASK) == 0) {
 		// Virtual address is the physical address.
@@ -788,6 +792,85 @@ void MultiCycleCache::mmuPageTableWalk()
 				}
 			}
 		}
+	}
+}
+
+void MultiCycleCache::gui()
+{
+	// NOTE: Should match Stage::Enum
+	static const char* s_Stages[] = {
+		"Instruction Fetch #1",
+		"Instruction Fetch #2",
+		"Decode",
+		"Execute",
+		"Memory #1",
+		"Memory #2",
+		"Write Back"
+	};
+
+	ImGui::Checkbox("Execute 1 step per tick", &m_SingleStep);
+
+	{
+		bool running = m_State.m_Mode == Mode::InstrExec && !m_ICacheNeedsStall && !m_DCacheNeedsStall;
+		bool stalled = m_State.m_Mode == Mode::InstrExec && (m_ICacheNeedsStall || m_DCacheNeedsStall);
+		bool ptWalk = m_State.m_Mode == Mode::PageTableWalk;
+		ImGui::Checkbox("Running", &running);
+		ImGui::SameLine();
+		ImGui::Checkbox("Stalled", &stalled);
+		ImGui::SameLine();
+		ImGui::Checkbox("PT Walk", &ptWalk);
+	}
+
+	{
+		ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.26f, 0.59f, 0.98f, 0.80f));
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.26f, 0.59f, 0.98f, 0.31f));
+		int stageID = m_State.m_Stage;
+		ImGui::ListBox("Stage", &stageID, &s_Stages[0], BX_COUNTOF(s_Stages), -1);
+		ImGui::PopStyleColor(2);
+	}
+
+	bool icacheCPUReqValid = m_ICacheReq.m_Control.m_Fields.m_Valid == 1;
+	ImGui::Checkbox("CPU -> L1 I-Cache", &icacheCPUReqValid);
+	ImGui::SameLine();
+	{
+		char str[256];
+		bx::snprintf(str, 256, "0x%08X", m_ICacheReq.m_Addr);
+		ImGui::PushItemWidth(80.0f);
+		ImGui::InputText("Address", str, 256, ImGuiInputTextFlags_ReadOnly);
+		ImGui::PopItemWidth();
+	}
+
+	bool dcacheCPUReqValid = m_DCacheReq.m_Control.m_Fields.m_Valid == 1;
+	ImGui::Checkbox("CPU -> L1 D-Cache", &dcacheCPUReqValid);
+	ImGui::SameLine();
+	{
+		char str[256];
+		bx::snprintf(str, 256, "0x%08X", m_DCacheReq.m_Addr);
+		ImGui::PushItemWidth(80.0f);
+		ImGui::InputText("Address", str, 256, ImGuiInputTextFlags_ReadOnly);
+		ImGui::PopItemWidth();
+	}
+
+	bool icacheMemReqValid = m_ICacheMemReq.m_Control.m_Fields.m_Valid == 1;
+	ImGui::Checkbox("L1 I-Cache -> RAM", &icacheMemReqValid);
+	ImGui::SameLine();
+	{
+		char str[256];
+		bx::snprintf(str, 256, "0x%08X", m_ICacheMemReq.m_Addr);
+		ImGui::PushItemWidth(80.0f);
+		ImGui::InputText("Address", str, 256, ImGuiInputTextFlags_ReadOnly);
+		ImGui::PopItemWidth();
+	}
+
+	bool dcacheMemReqValid = m_DCacheMemReq.m_Control.m_Fields.m_Valid == 1;
+	ImGui::Checkbox("L1 D-Cache -> RAM", &dcacheMemReqValid);
+	ImGui::SameLine();
+	{
+		char str[256];
+		bx::snprintf(str, 256, "0x%08X", m_DCacheMemReq.m_Addr);
+		ImGui::PushItemWidth(80.0f);
+		ImGui::InputText("Address", str, 256, ImGuiInputTextFlags_ReadOnly);
+		ImGui::PopItemWidth();
 	}
 }
 } // namespace cpu
